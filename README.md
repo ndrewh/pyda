@@ -68,6 +68,19 @@ are shared.
 
 ## Usage
 
+### Install
+
+Suggested use is via Docker:
+```sh
+docker build -t pyda .
+docker run -it pyda
+```
+
+"Hello World"
+```sh
+./pyda examples/resolve_indirect_calls.py -- /usr/bin/ls
+```
+
 ### Examples
 
 - [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
