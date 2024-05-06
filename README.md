@@ -21,16 +21,20 @@ from pyda import *
 from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
 
+# Get a handle to the current process
 p = process()
 
+# Get the binary base address
 e = ELF(p.exe_path)
 e.address = p.maps[p.exe_path].base
 
+# Define a hook/breakpoint -- this can be at any instruction
 def main_hook(p, addr):
     print(f"at main, rsp={hex(p.regs.rsp)}")
     return_addr = p.read(p.regs.rsp, 8)
     print(f"return address: {hex(u64(return_addr))}")
 
+# Register the hook, and run the bianry
 p.hook(e.symbols["main"], main_hook)
 p.run()
 ```
@@ -46,12 +50,12 @@ See [examples/](examples/) for additional examples.
 
 Current features:
 -----
-- Hooks (or "breakpoints" if you prefer) at arbitrary instructions
+- Hooks (aka "breakpoints" if you prefer) at arbitrary instructions
 - Read and write memory
 - Read registers
 
 ## Limitations
-- Currently untested on multithreaded programs, JITs, non-linux, etc. Simple CTF challenges only.
+- Currently untested on multithreaded programs, JITs, non-linux, etc.
 - Currently X86_64 only (please contribute ARM64 support!)
 - All of the limitations of Dynamorio apply. The program must be reasonably well behaved.
 - Some state may be shared with the target process; while Dynamorio
@@ -60,7 +64,6 @@ are shared.
 
 #### Known issues:
 - Parts of some packages cannot be imported (e.g. `from pwn import *`)
-
 
 #### Planned features
 - Register write
@@ -76,7 +79,12 @@ docker build -t pyda .
 docker run -it pyda
 ```
 
-"Hello World"
+Usage:
+```sh
+./pyda <script_path> [script_args] -- <bin_path> [bin_args]
+```
+
+"Hello World" example: Dump a list of indirect call targets in a binary
 ```sh
 ./pyda examples/resolve_indirect_calls.py -- /usr/bin/ls
 ```
