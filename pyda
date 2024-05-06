@@ -1,0 +1,4 @@
+#!/bin/bash
+
+ROOT=$(dirname "$0")
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PYTHONHOME/lib/ PYDA_SCRIPT=$1 $DYNAMORIO_HOME/bin64/drrun -stack_size 512K -c $ROOT/build/pyda_core/libtool.so ${@:2}

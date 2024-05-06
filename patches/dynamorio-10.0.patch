@@ -1,0 +1,393 @@
+diff --git a/api/samples/memtrace_x86.c b/api/samples/memtrace_x86.c
+index 4e726c5b2..b229086bf 100644
+--- a/api/samples/memtrace_x86.c
++++ b/api/samples/memtrace_x86.c
+@@ -260,6 +260,20 @@ event_thread_exit(void *drcontext)
+ 
+     memtrace(drcontext);
+     data = drmgr_get_tls_field(drcontext, tls_index);
++
++#ifdef OUTPUT_TEXT
++    const char *dump_modules[0x4] = { "libc.so.6", "daydream", "ld-linux-x86-64.so.2", NULL };
++    for (int i = 0; i < 0x4; i++) {
++        if (dump_modules[i] == NULL) break;
++        module_data_t *mod = dr_lookup_module_by_name(dump_modules[i]);
++        if (mod) {
++            fprintf(data->logf, "BASE %s %p %p\n", dump_modules[i], mod->start, mod->end);
++        } else {
++            fprintf(data->logf, "Could not get base for %s\n", dump_modules[i]);
++        }
++    }
++#endif
++
+     dr_mutex_lock(mutex);
+     global_num_refs += data->num_refs;
+     dr_mutex_unlock(mutex);
+diff --git a/core/heap.c b/core/heap.c
+index 8a0c440cf..f596108da 100644
+--- a/core/heap.c
++++ b/core/heap.c
+@@ -4548,7 +4548,7 @@ common_heap_free(thread_units_t *tu, void *p_void,
+ #ifdef DEBUG_MEMORY
+         /* ensure we are freeing memory in a proper unit */
+         DOCHECK(CHKLVL_DEFAULT, { /* expensive check */
+-                                  ASSERT(find_heap_unit(tu, p, size) != NULL);
++                                  ASSERT(find_heap_unit(tu, p, size) != NULL || *(bool*)0);
+         });
+ #endif
+ 
+diff --git a/core/lib/dr_tools.h b/core/lib/dr_tools.h
+index efbb1c636..b7ab5d060 100644
+--- a/core/lib/dr_tools.h
++++ b/core/lib/dr_tools.h
+@@ -2107,6 +2107,11 @@ DR_API
+ void
+ dr_thread_yield(void);
+ 
++DR_API
++/** Current thread gives up its time quantum. */
++void
++dr_set_safe_for_sync(bool safe);
++
+ /** Flags controlling the behavior of dr_suspend_all_other_threads_ex(). */
+ typedef enum {
+     /**
+diff --git a/core/lib/instrument.c b/core/lib/instrument.c
+index 00686214e..e70361484 100644
+--- a/core/lib/instrument.c
++++ b/core/lib/instrument.c
+@@ -4731,6 +4731,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
+         });
+ }
+ 
++DR_API
++void
++dr_set_safe_for_sync(bool safe)
++{
++    dcontext_t *dcontext = get_thread_private_dcontext();
++    CLIENT_ASSERT(!standalone_library, "API not supported in standalone mode");
++    if (IS_CLIENT_THREAD(dcontext))
++        dcontext->client_data->client_thread_safe_for_synch = safe;
++    else
++        dcontext->client_data->at_safe_to_terminate_syscall = safe;
++}
++
+ DR_API
+ /* Current thread gives up its time quantum. */
+ void
+diff --git a/core/loader_shared.c b/core/loader_shared.c
+index 339805e41..3674912a8 100644
+--- a/core/loader_shared.c
++++ b/core/loader_shared.c
+@@ -452,6 +452,14 @@ privload_lookup_by_base(app_pc modbase)
+     return NULL;
+ }
+ 
++// HACK
++privmod_t* privload_lookup_by_pc_takelock(app_pc pc) {
++    acquire_recursive_lock(&privload_lock);
++    privmod_t *res = privload_lookup_by_pc(pc);
++    release_recursive_lock(&privload_lock);
++    return res;
++}
++
+ /* Lookup the private loaded library by base */
+ privmod_t *
+ privload_lookup_by_pc(app_pc pc)
+@@ -925,20 +933,16 @@ loader_allow_unsafe_static_behavior(void)
+  */
+ #define REDIRECT_HEADER_SHIFTED (1ULL << IF_X64_ELSE(63, 31))
+ 
+-/* This routine allocates memory from DR's global memory pool.  Unlike
+- * dr_global_alloc(), however, we store the size of the allocation in
+- * the first few bytes so redirect_free() can retrieve it.  We also align
+- * to the standard alignment used by most allocators.  This memory
+- * is also not guaranteed-reachable.
+- */
+-void *
+-redirect_malloc(size_t size)
+-{
++static void *
++private_alloc(size_t alignment, size_t size) {
+     void *mem;
++    if (alignment < STANDARD_HEAP_ALIGNMENT) {
++        alignment = STANDARD_HEAP_ALIGNMENT;
++    }
+     /* We need extra space to store the size and alignment bit and ensure the returned
+      * pointer is aligned.
+      */
+-    size_t alloc_size = size + sizeof(size_t) + STANDARD_HEAP_ALIGNMENT - HEAP_ALIGNMENT;
++    size_t alloc_size = size + sizeof(size_t) + alignment - HEAP_ALIGNMENT;
+     /* Our header is the size itself, with the top bit stolen to indicate alignment. */
+     if (TEST(REDIRECT_HEADER_SHIFTED, alloc_size)) {
+         /* We do not support the top bit being set as that conflicts with the bit in
+@@ -954,15 +958,15 @@ redirect_malloc(size_t size)
+         return NULL;
+     }
+     ptr_uint_t res =
+-        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), STANDARD_HEAP_ALIGNMENT);
++        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), alignment);
+     size_t header = alloc_size;
+     ASSERT(HEAP_ALIGNMENT * 2 == STANDARD_HEAP_ALIGNMENT);
+     ASSERT(!TEST(REDIRECT_HEADER_SHIFTED, header));
+     if (res == (ptr_uint_t)mem + sizeof(size_t)) {
+         /* Already aligned. */
+-    } else if (res == (ptr_uint_t)mem + sizeof(size_t) * 2) {
+-        /* DR's alignment is "odd" for double-pointer so we're adding one pointer. */
++    } else if (res >= (ptr_uint_t)mem + sizeof(size_t) * 2) {
+         header |= REDIRECT_HEADER_SHIFTED;
++        *(size_t*)(res - 2 * sizeof(size_t)) = res - 2 * sizeof(size_t) - (ptr_uint_t)mem;
+     } else
+         ASSERT_NOT_REACHED();
+     *((size_t *)(res - sizeof(size_t))) = header;
+@@ -970,6 +974,24 @@ redirect_malloc(size_t size)
+     return (void *)res;
+ }
+ 
++/* This routine allocates memory from DR's global memory pool.  Unlike
++ * dr_global_alloc(), however, we store the size of the allocation in
++ * the first few bytes so redirect_free() can retrieve it.  We also align
++ * to the standard alignment used by most allocators.  This memory
++ * is also not guaranteed-reachable.
++ */
++void *
++redirect_malloc(size_t size)
++{
++    return private_alloc(STANDARD_HEAP_ALIGNMENT, size);
++}
++
++int
++redirect_posix_memalign(void **memptr, size_t alignment, size_t size) {
++    *memptr = private_alloc(alignment, size);
++    return 0;
++}
++
+ /* Returns the underlying DR allocation's size and starting point, given a
+  * wrapped-malloc-layer pointer from a client/privlib.
+  */
+@@ -982,6 +1004,8 @@ redirect_malloc_size_and_start(void *mem, OUT void **start_out)
+     if (TEST(REDIRECT_HEADER_SHIFTED, size)) {
+         start = size_ptr - 1;
+         size &= ~REDIRECT_HEADER_SHIFTED;
++
++        start -= *(size_ptr - 1);
+     }
+     if (start_out != NULL)
+         *start_out = start;
+@@ -995,12 +1019,7 @@ redirect_malloc_requested_size(void *mem)
+         return 0;
+     void *start;
+     size_t size = redirect_malloc_size_and_start(mem, &start);
+-    size -= sizeof(size_t);
+-    if (start != mem) {
+-        /* Subtract the extra size for alignment. */
+-        size -= sizeof(size_t);
+-    }
+-    return size;
++    return (size_t)(start + size - mem);
+ }
+ 
+ /* This routine allocates memory from DR's global memory pool. Unlike
+diff --git a/core/module_shared.h b/core/module_shared.h
+index 5499f27e5..ad0c41247 100644
+--- a/core/module_shared.h
++++ b/core/module_shared.h
+@@ -492,6 +492,9 @@ privload_lookup_by_base(app_pc modbase);
+ privmod_t *
+ privload_lookup_by_pc(app_pc modbase);
+ 
++DR_API privmod_t *
++privload_lookup_by_pc_takelock(app_pc modbase);
++
+ /* name is assumed to be in immutable persistent storage.
+  * a copy of path is made.
+  */
+@@ -614,6 +617,9 @@ redirect_calloc(size_t nmemb, size_t size);
+ void *
+ redirect_malloc(size_t size);
+ 
++int
++redirect_posix_memalign(void **memptr, size_t alignment, size_t size);
++
+ void
+ redirect_free(void *mem);
+ 
+diff --git a/core/os_shared.h b/core/os_shared.h
+index 4e1150109..932bf8e57 100644
+--- a/core/os_shared.h
++++ b/core/os_shared.h
+@@ -1200,7 +1200,7 @@ load_private_library(const char *filename, bool reachable);
+ bool
+ unload_private_library(app_pc modbase);
+ /* searches in standard paths instead of requiring abs path */
+-app_pc
++DR_API app_pc
+ locate_and_load_private_library(const char *name, bool reachable);
+ void
+ loader_init_prologue(void);
+diff --git a/core/synch.c b/core/synch.c
+index f5eef1e5c..91f5a16bd 100644
+--- a/core/synch.c
++++ b/core/synch.c
+@@ -513,6 +513,9 @@ should_suspend_client_thread(dcontext_t *dcontext, thread_synch_state_t desired_
+ {
+     /* Marking un-suspendable does not apply to cleaning/terminating */
+     ASSERT(IS_CLIENT_THREAD(dcontext));
++    if (THREAD_SYNCH_IS_CLEANED(desired_state)) {
++        SYSLOG_INTERNAL_INFO("cleaning client thread " TIDFMT, dcontext->owning_thread);
++    }
+     return (THREAD_SYNCH_IS_CLEANED(desired_state) || dcontext->client_data->suspendable);
+ }
+ 
+@@ -765,7 +768,7 @@ check_wait_at_safe_spot(dcontext_t *dcontext, thread_synch_permission_t cur_stat
+ }
+ 
+ /* adjusts the pending synch count */
+-void
++DR_API void
+ adjust_wait_at_safe_spot(dcontext_t *dcontext, int amt)
+ {
+     thread_synch_data_t *tsd = (thread_synch_data_t *)dcontext->synch_field;
+@@ -1249,8 +1252,8 @@ synch_with_all_threads(thread_synch_state_t desired_synch_state,
+ 
+     LOG(THREAD, LOG_SYNCH, 1,
+         "synch with all threads my id = " SZFMT
+-        " Giving %d permission and seeking %d state\n",
+-        my_id, cur_state, desired_synch_state);
++        " Giving %d permission and seeking %d state, flags %x\n",
++        my_id, cur_state, desired_synch_state, flags);
+ 
+     /* grab all_threads_synch_lock */
+     /* since all_threads synch doesn't give any permissions this is necessary
+diff --git a/core/unix/loader.c b/core/unix/loader.c
+index 10c4518b0..1d6114876 100644
+--- a/core/unix/loader.c
++++ b/core/unix/loader.c
+@@ -158,7 +158,7 @@ privload_locate_and_load(const char *impname, privmod_t *dependent, bool reachab
+ static void
+ privload_call_lib_func(fp_t func);
+ 
+-static void
++DR_API void
+ privload_relocate_mod(privmod_t *mod);
+ 
+ static void
+@@ -1276,7 +1276,13 @@ privload_relocate_os_privmod_data(os_privmod_data_t *opd, byte *mod_base)
+ }
+ #endif /* LINUX */
+ 
+-static void
++DR_API void privload_relocate_mod_takelock(privmod_t *mod) {
++    acquire_recursive_lock(&privload_lock);
++    privload_relocate_mod(mod);
++    release_recursive_lock(&privload_lock);
++}
++
++void
+ privload_relocate_mod(privmod_t *mod)
+ {
+ #ifdef LINUX
+@@ -1517,6 +1523,7 @@ typedef struct _redirect_import_t {
+ static const redirect_import_t redirect_imports[] = {
+     { "calloc", (app_pc)redirect_calloc },
+     { "malloc", (app_pc)redirect_malloc },
++    { "posix_memalign", (app_pc)redirect_posix_memalign },
+     { "free", (app_pc)redirect_free },
+     { "realloc", (app_pc)redirect_realloc },
+     { "strdup", (app_pc)redirect_strdup },
+@@ -1548,6 +1555,7 @@ static const redirect_import_t redirect_imports[] = {
+     { "__gnu_Unwind_Find_exidx", (app_pc)redirect___gnu_Unwind_Find_exidx },
+ #    endif
+ #endif
++    // { "dlsym", (app_pc)redirect_dlsym },
+     { "dlsym", (app_pc)redirect_dlsym },
+     /* We need these for clients that don't use libc (i#1747) */
+     { "strlen", (app_pc)strlen },
+@@ -1570,6 +1578,10 @@ static const redirect_import_t redirect_imports[] = {
+     { "memmove_chk", (app_pc)memmove },
+     { "strncpy_chk", (app_pc)strncpy },
+ };
++
++DR_API redirect_import_t *client_redirect_imports = NULL;
++DR_API int client_redirect_imports_count = 0;
++
+ #define REDIRECT_IMPORTS_NUM (sizeof(redirect_imports) / sizeof(redirect_imports[0]))
+ 
+ #ifdef DEBUG
+@@ -1599,6 +1611,15 @@ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *na
+         }
+     }
+ #endif
++    for (i = 0; i < client_redirect_imports_count; i++) {
++        if (strcmp(client_redirect_imports[i].name, name) == 0) {
++            if (opd->use_app_imports && client_redirect_imports[i].app_func != NULL)
++                *r_addr = (ptr_uint_t)client_redirect_imports[i].app_func;
++            else
++                *r_addr = (ptr_uint_t)client_redirect_imports[i].func;
++            return true;
++        }
++    }
+     for (i = 0; i < REDIRECT_IMPORTS_NUM; i++) {
+         if (strcmp(redirect_imports[i].name, name) == 0) {
+             if (opd->use_app_imports && redirect_imports[i].app_func != NULL)
+diff --git a/core/unix/loader_linux.c b/core/unix/loader_linux.c
+index 9f5b85152..c63e58717 100644
+--- a/core/unix/loader_linux.c
++++ b/core/unix/loader_linux.c
+@@ -134,7 +134,7 @@ static size_t client_tls_size = 2 * 4096;
+  * good way to guess how big this allocation was.  Instead we use this estimate.
+  */
+ /* On A32, the pthread is put before tcbhead instead tcbhead being part of pthread */
+-static size_t tcb_size = IF_X86_ELSE(IF_X64_ELSE(0x900, 0x490), 0x40);
++static size_t tcb_size = IF_X86_ELSE(IF_X64_ELSE(0xc00, 0x490), 0x40);
+ 
+ /* thread contol block header type from
+  * - sysdeps/x86_64/nptl/tls.h
+@@ -156,6 +156,8 @@ typedef struct _tcb_head_t {
+ 
+     ptr_uint_t stack_guard;
+     ptr_uint_t pointer_guard;
++    unsigned long int unused[2];
++    unsigned int feature_1;
+ #elif defined(AARCH64)
+     /* FIXME i#1569: This may be wrong! */
+     void *dtv;
+@@ -305,7 +307,8 @@ privload_copy_tls_block(app_pc priv_tls_base, uint mod_idx)
+ void
+ privload_mod_tls_primary_thread_init(privmod_t *mod)
+ {
+-    ASSERT(!dynamo_initialized);
++    // ASSERT(!dynamo_initialized);
++
+     /* Copy ELF block for primary thread for use in init funcs (i#2751).
+      * We do this after relocs and assume reloc ifuncs don't need this:
+      * else we'd have to assume there are no relocs in the TLS blocks.
+@@ -330,6 +333,7 @@ privload_tls_init(void *app_tp)
+         app_tp);
+     dr_tp = heap_mmap(client_tls_alloc_size, MEMPROT_READ | MEMPROT_WRITE,
+                       VMM_SPECIAL_MMAP | VMM_PER_THREAD);
++    SYSLOG_INTERNAL_INFO("dr_tp: %p tcb_size: %lx\n", dr_tp, tcb_size);
+     ASSERT(APP_LIBC_TLS_SIZE + TLS_PRE_TCB_SIZE + tcb_size <= client_tls_alloc_size);
+ #ifdef AARCHXX
+     /* GDB reads some pthread members (e.g., pid, tid), so we must make sure
+@@ -373,6 +377,7 @@ privload_tls_init(void *app_tp)
+     dr_tcb->self = dr_tcb;
+     /* i#555: replace app's vsyscall with DR's int0x80 syscall */
+     dr_tcb->sysinfo = (ptr_uint_t)client_int_syscall;
++    dr_tcb->feature_1 = 0; // this is currently used to say we don't have Intel CET
+ #elif defined(AARCHXX)
+     dr_tcb->dtv = NULL;
+     dr_tcb->private = NULL;
+diff --git a/core/unix/module.h b/core/unix/module.h
+index 25616b24c..518459db3 100644
+--- a/core/unix/module.h
++++ b/core/unix/module.h
+@@ -167,7 +167,7 @@ extern stdfile_t **privmod_stderr;
+ extern stdfile_t **privmod_stdin;
+ 
+ /* loader.c */
+-app_pc
++DR_API app_pc
+ get_private_library_address(app_pc modbase, const char *name);
+ 
+ bool

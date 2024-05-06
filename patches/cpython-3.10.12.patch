@@ -1,0 +1,26 @@
+diff --git a/Modules/faulthandler.c b/Modules/faulthandler.c
+index 8d2221cfd8..1372cbc291 100644
+--- a/Modules/faulthandler.c
++++ b/Modules/faulthandler.c
+@@ -20,7 +20,7 @@
+ /* Using an alternative stack requires sigaltstack()
+    and sigaction() SA_ONSTACK */
+ #if defined(HAVE_SIGALTSTACK) && defined(HAVE_SIGACTION)
+-#  define FAULTHANDLER_USE_ALT_STACK
++// #  define FAULTHANDLER_USE_ALT_STACK
+ #endif
+ 
+ #if defined(FAULTHANDLER_USE_ALT_STACK) && defined(HAVE_LINUX_AUXVEC_H) && defined(HAVE_SYS_AUXV_H)
+diff --git a/Python/thread_pthread.h b/Python/thread_pthread.h
+index 35b9810aa3..4085158070 100644
+--- a/Python/thread_pthread.h
++++ b/Python/thread_pthread.h
+@@ -100,7 +100,7 @@
+ 
+ #if defined(HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+ // monotonic is supported statically.  It doesn't mean it works on runtime.
+-#define CONDATTR_MONOTONIC
++// #define CONDATTR_MONOTONIC
+ #endif
+ 
+ 
