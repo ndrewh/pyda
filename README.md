@@ -10,19 +10,20 @@ It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndb
 or complex dynamic instrumentation frameworks (Frida, Dynamorio, DynInst, PIN, etc.).
 It was designed with CTF challenges (pwn/rev) in mind.
 
+#### Quickstart
+
 ```sh
 docker run -it ghcr.io/ndrewh/pyda
-
-$ pyda <script_name> -- <target> <target_args>
+pyda <script_name> -- <target> <target_args>
 ```
 
 
+Example
+-----
 > [!WARNING]
 > This API is not stable and will likely change. Please provide
 > feedback on the API by filing an issue.
 
-Example
------
 ```py
 from pyda import *
 from pwnlib.elf.elf import ELF
