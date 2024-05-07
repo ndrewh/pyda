@@ -40,9 +40,18 @@ class ProcessRegisters():
             return val
         
         raise AttributeError(f"Invalid register name '{name}'")
+    
+    def __setitem__(self, name, value):
+        self._p.set_register(name.lower(), value)
 
     def __getattr__(self, name):
         return self[name]
+    
+    def __setattr__(self, name, value):
+        if name != "_p":
+            self[name] = value
+        else:
+            super().__setattr__(name, value)
 
 class ProcessMemory():
     def __init__(self, p):

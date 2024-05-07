@@ -138,10 +138,10 @@ void python_init() {
     PyConfig_InitPythonConfig(&config);
 
     int argc;
-    const **argv;
+    const char **argv;
     dr_get_option_array(pyda_client_id, &argc, &argv);
 
-    PyConfig_SetBytesArgv(&config, argc, argv);
+    PyConfig_SetBytesArgv(&config, argc, (char * const *)argv);
     config.parse_argv = 0;
     Py_InitializeFromConfig(&config);
 
@@ -234,6 +234,9 @@ void python_thread(pyda_thread *t) {
     if (!script_name) script_name = "script.py";
 
     FILE *f = fopen(script_name, "r");
+    if (!f) {
+        fprintf(stderr, "[Pyda] Error: could not open %s\n", script_name);
+    }
     if (PyRun_SimpleFile(f, script_name) == -1) {
         // python exception
     }

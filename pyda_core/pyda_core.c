@@ -40,8 +40,6 @@ pyda_thread* pyda_mk_process() {
 }
 
 void pyda_process_destroy(pyda_thread *t) {
-    ABORT_IF_NODYNAMORIO;
-
     if (--t->refcount > 0) return;
 
     pyda_hook *cb = t->callbacks;
@@ -156,7 +154,6 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     t->cur_context.size = sizeof(dr_mcontext_t);
     t->cur_context.flags = DR_MC_INTEGER | DR_MC_CONTROL; // assuming SIMD doesnt exist
     dr_get_mcontext(drcontext, &t->cur_context);
-    t->cur_context.pc = cb->addr;
 
     PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->py_obj, PyLong_FromUnsignedLong((unsigned long)cb->addr), NULL);
     if (result == NULL) {
@@ -165,6 +162,7 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     }
     Py_DECREF(result);
 
+    dr_set_mcontext(drcontext, &t->cur_context);
     PyGILState_Release(gstate);
 }
 

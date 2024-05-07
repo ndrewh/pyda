@@ -20,6 +20,7 @@ static void PydaProcess_dealloc(PydaProcess *self);
 static PyObject *pyda_process_run(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_register_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_get_register(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_register(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_get_base(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_read(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_write(PyObject *self, PyObject *args);
@@ -52,6 +53,7 @@ static PyMethodDef PydaProcessMethods[] = {
     {"get_base",  PydaProcess_get_base, METH_VARARGS, "Get base addr for image"},
     {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
     {"get_register",  PydaProcess_get_register, METH_VARARGS, "Get a specific register"},
+    {"set_register",  PydaProcess_set_register, METH_VARARGS, "Set a specific register"},
     {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
     {"read",  PydaProcess_read, METH_VARARGS, "Read memory"},
     {"write",  PydaProcess_write, METH_VARARGS, "Write memory"},
@@ -166,6 +168,65 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
         return PyLong_FromUnsignedLong((unsigned long)mc->rdx);
     } else if (strcmp(regname, "rip") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->pc);
+    }
+#endif // PYDA_DYNAMORIO_CLIENT
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_set_register(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    const char *regname;
+    unsigned long long val;
+
+    if (!PyArg_ParseTuple(args, "sK", &regname, &val))
+        return NULL;
+
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("set_register: %s %llx\n", regname, val);
+    // DEBUG_PRINTF("get_register: %s\n", regname);
+    dr_mcontext_t *mc = &p->t->cur_context;
+
+    // TODO: Fix... copilot wrote this. Surely we can write
+    // a macro...
+    if (strcmp(regname, "rax") == 0) {
+        mc->rax = val;
+    } else if (strcmp(regname, "rbx") == 0) {
+        mc->rbx = val;
+    } else if (strcmp(regname, "rcx") == 0) {
+        mc->rcx = val;
+    } else if (strcmp(regname, "rsp") == 0) {
+        mc->rsp = val;
+    } else if (strcmp(regname, "rbp") == 0) {
+        mc->rbp = val;
+    } else if (strcmp(regname, "rdi") == 0) {
+        mc->rdi = val;
+    } else if (strcmp(regname, "rsi") == 0) {
+        mc->rsi = val;
+    } else if (strcmp(regname, "r8") == 0) {
+        mc->r8 = val;
+    } else if (strcmp(regname, "r9") == 0) {
+        mc->r9 = val;
+    } else if (strcmp(regname, "r10") == 0) {
+        mc->r10 = val;
+    } else if (strcmp(regname, "r11") == 0) {
+        mc->r11 = val;
+    } else if (strcmp(regname, "r12") == 0) {
+        mc->r12 = val;
+    } else if (strcmp(regname, "r13") == 0) {
+        mc->r13 = val;
+    } else if (strcmp(regname, "r14") == 0) {
+        mc->r14 = val;
+    } else if (strcmp(regname, "r15") == 0) {
+        mc->r15 = val;
+    } else if (strcmp(regname, "rdx") == 0) {
+        mc->rdx = val;
+    } else if (strcmp(regname, "rip") == 0) {
+        mc->pc = val;
     }
 #endif // PYDA_DYNAMORIO_CLIENT
 

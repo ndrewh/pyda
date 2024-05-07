@@ -131,7 +131,7 @@ run `pyda` with `LD_LIBRARY_PATH` -- the target uses a normal loader.
 
 ## How it works
 
-Pyda runs as a [Dynamorio](https://dynamorio.org) tool. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
+Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `./pyda` is just a `drrun` wrapper. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
 
 Dynamorio normally supports a variety of custom "tools" or "clients"
 which can insert instrumentation into generic targets using a variety

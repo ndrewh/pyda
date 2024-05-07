@@ -19,24 +19,29 @@ RUN cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch
 RUN cd /opt/custom-python/cpython-3.10.12/ && ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
       make install -
 
+ARG PYDA_DEBUG=0
+
 # install dynamorio
 RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0 
 WORKDIR /opt/dynamorio/
 COPY patches/dynamorio-10.0.patch /opt/dynamorio/
 RUN git apply dynamorio-10.0.patch
-RUN mkdir build && cd build && cmake .. && make -j
+RUN mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") ..' && make -j
 
 ENV DYNAMORIO_HOME=/opt/dynamorio/build/
 ENV PYTHONHOME=/opt/custom-python-root/
 ENV PYTHONPATH=/opt/custom-python-root/lib/python3.10/:/opt/pyda/lib
 
+RUN pip3 install pwntools
+
 COPY ./ /opt/pyda/
 WORKDIR /opt/pyda
 RUN mkdir build && cd build && \
-      CMAKE_PREFIX_PATH=/opt/dynamorio/build/cmake cmake -DCMAKE_BUILD_TYPE=Release -DDynamoRIO_DIR=$DYNAMORIO_HOME/cmake -DPython3_EXECUTABLE=$PYTHONHOME/bin/python3 -DPython3_ROOT_DIR=/opt/custom-python-root/  .. && \
+      bash -c 'CMAKE_PREFIX_PATH=/opt/dynamorio/build/cmake cmake -DCMAKE_BUILD_TYPE=$([ "$PYDA_DEBUG" == "1" ] && echo "Debug" || echo "Release") -DDynamoRIO_DIR=$DYNAMORIO_HOME/cmake -DPython3_EXECUTABLE=$PYTHONHOME/bin/python3 -DPython3_ROOT_DIR=/opt/custom-python-root/  ..' && \
       make -j
 
-ENV PATH=$PATH:/opt/custom-python-root/bin
+ENV PATH=$PATH:/opt/pyda/bin
+
 
 # RUN bash -c "$(wget https://gef.blah.cat/sh -O -)"
 # RUN pip3 install pwntools
