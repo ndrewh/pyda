@@ -22,11 +22,14 @@ def get_calls(proc):
             addr = int(l.split(":")[0].strip(), 16)
             lol = "".join(l.split(":")[1].split("[")[1].split("]")[0])
             if '+' in lol:
-                reg, off = lol.split("+")
+                reg, off = lol.split("+", 1)
             else:
                 reg, off = lol, "0"
 
-            off = int(off, 0)
+            try:
+                off = int(off, 0)
+            except:
+                continue
 
             ind_call_locs[addr] = (reg, off)
         elif l.split()[-2] == "call":
