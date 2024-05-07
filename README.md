@@ -52,7 +52,7 @@ Current features:
 -----
 - Hooks (aka "breakpoints" if you prefer) at arbitrary instructions
 - Read and write memory
-- Read registers
+- Read and modify registers
 
 ## Limitations
 - Currently untested on multithreaded programs, JITs, non-linux, etc.
@@ -64,9 +64,9 @@ are shared.
 
 #### Known issues:
 - Parts of some packages cannot be imported (e.g. `from pwn import *`)
+- Currently cannot update RIP in hooks (cannot redirect execution)
 
 #### Planned features
-- Register write
 - Arbitrary function calls into the target from Python using ctypes.
 
 ## Usage
@@ -113,6 +113,9 @@ p.regs.rax # (int)
 
 # Get process base
 p.maps["libc.so.6"] # (int)
+
+# Register hooks
+p.hook(0x100000, lambda p: print(f"rsp={hex(p.regs.rsp)}"))
 ```
 
 ### FAQ
