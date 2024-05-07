@@ -29,7 +29,7 @@ e = ELF(p.exe_path)
 e.address = p.maps[p.exe_path].base
 
 # Define a hook/breakpoint -- this can be at any instruction
-def main_hook(p, addr):
+def main_hook(p):
     print(f"at main, rsp={hex(p.regs.rsp)}")
     return_addr = p.read(p.regs.rsp, 8)
     print(f"return address: {hex(u64(return_addr))}")

@@ -151,8 +151,9 @@ void python_init() {
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
+    // Check that the python interpreter is functional
     PyRun_SimpleString("from time import time,ctime\n"
-                       "print('You are running Pyda v0.0.1');\n"
+                       "print('You are running Pyda v" PYDA_VERSION ".');\n"
     );
     DEBUG_PRINTF("python_init3\n");
     // PyGILState_Release(gstate);
@@ -231,15 +232,23 @@ void python_thread(pyda_thread *t) {
     DEBUG_PRINTF("Running script...\n");
 
     const char *script_name = getenv("PYDA_SCRIPT");
-    if (!script_name) script_name = "script.py";
+    if (!script_name) {
+        fprintf(stderr, "[Pyda] Error: PYDA_SCRIPT not set\n");
+    }
 
     FILE *f = fopen(script_name, "r");
     if (!f) {
         fprintf(stderr, "[Pyda] Error: could not open %s\n", script_name);
+        goto python_exit;
     }
+
     if (PyRun_SimpleFile(f, script_name) == -1) {
         // python exception
     }
+
+    fclose(f);
+
+python_exit:
 
     DEBUG_PRINTF("Script exited...\n");
 

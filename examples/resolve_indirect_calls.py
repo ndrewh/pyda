@@ -37,13 +37,13 @@ def get_calls(proc):
 
 call_locs, ind_call_locs = get_calls(p)
 
-def call_reg(p, addr):
-    reg = call_locs[addr - BASE]
+def call_reg(p):
+    reg = call_locs[p.regs.rip - BASE]
     rax = p.regs[reg]
-    print(f"call {hex(addr - BASE)} -> {hex(rax - BASE)}")
+    print(f"call {hex(p.regs.rip - BASE)} -> {hex(rax - BASE)}")
 
-def ind_call_print(p, addr):
-    addr = addr - BASE
+def ind_call_print(p):
+    addr = p.regs.rip - BASE
     reg, off = ind_call_locs[addr]
     reg_val = p.regs[reg]
     mem_target = reg_val + off

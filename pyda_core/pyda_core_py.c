@@ -166,7 +166,7 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
         return PyLong_FromUnsignedLong((unsigned long)mc->r15);
     } else if (strcmp(regname, "rdx") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->rdx);
-    } else if (strcmp(regname, "rip") == 0) {
+    } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->pc);
     }
 #endif // PYDA_DYNAMORIO_CLIENT
@@ -225,8 +225,10 @@ PydaProcess_set_register(PyObject *self, PyObject *args) {
         mc->r15 = val;
     } else if (strcmp(regname, "rdx") == 0) {
         mc->rdx = val;
-    } else if (strcmp(regname, "rip") == 0) {
-        mc->pc = val;
+    } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
+        // mc->pc = val;
+        PyErr_SetString(PyExc_RuntimeError, "Setting rip is currently not supported");
+        return NULL;
     }
 #endif // PYDA_DYNAMORIO_CLIENT
 
@@ -244,6 +246,12 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
 
     if (!PyArg_ParseTuple(args, "KO!", &addr, &PyFunction_Type, &callback))
         return NULL;
+
+    PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
+    if (!code || code->co_argcount != 1) {
+        PyErr_SetString(PyExc_RuntimeError, "Callback must take one argument");
+        return NULL;
+    }
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("register_hook: %llx\n", addr);

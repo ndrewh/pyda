@@ -5,7 +5,7 @@ class Process():
         self._p = handle
     
     def hook(self, addr, callback):
-        hook_wrapper = lambda p, a: callback(self, a)
+        hook_wrapper = lambda p: callback(self)
         self._p.register_hook(addr, hook_wrapper)
     
     def read(self, addr, size):
@@ -25,7 +25,7 @@ class Process():
         elif name == "exe_path":
             return self._p.get_main_module()
 
-        raise AttributeError(f"Invalid attribute '{name}'")
+        raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
     
     def run(self):
         self._p.run()

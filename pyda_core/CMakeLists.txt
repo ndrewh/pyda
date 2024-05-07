@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
+add_compile_definitions(PYDA_VERSION="${CMAKE_PROJECT_VERSION}")
+
 add_library(tool SHARED tool.c pyda_core_py.c pyda_core.c pyda_threads.c pyda_patch_python.c)
 find_package(DynamoRIO)
 if (NOT DynamoRIO_FOUND)
