@@ -149,6 +149,17 @@ Type "help", "copyright", "credits" or "license" for more information.
 >>> 
 ```
 
+**Can my scripts parse arguments?**
+
+Yes. Script arguments can be passed before
+the `--` when running `pyda`. For example:
+```sh
+pyda script.py --option1 --optinon2 -- ls
+```
+
+Your script can parse these options like normal
+with the `argparse` module.
+
 ## How it works
 
 Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `pyda` is just a `drrun` wrapper. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
