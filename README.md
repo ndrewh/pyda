@@ -10,6 +10,13 @@ It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndb
 or complex dynamic instrumentation frameworks (Frida, Dynamorio, DynInst, PIN, etc.).
 It was designed with CTF challenges (pwn/rev) in mind.
 
+```sh
+docker run -it ghcr.io/ndrewh/pyda
+
+$ pyda <script_name> -- <target> <target_args>
+```
+
+
 > [!WARNING]
 > This API is not stable and will likely change. Please provide
 > feedback on the API by filing an issue.
@@ -34,7 +41,7 @@ def main_hook(p):
     return_addr = p.read(p.regs.rsp, 8)
     print(f"return address: {hex(u64(return_addr))}")
 
-# Register the hook, and run the bianry
+# Register the hook, and run the binary
 p.hook(e.symbols["main"], main_hook)
 p.run()
 ```
