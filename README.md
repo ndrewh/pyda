@@ -40,7 +40,7 @@ p.run()
 ```
 
 ```
-$ ./pyda examples/simple.py -- ./challenge 
+$ pyda examples/simple.py -- ./challenge 
 You are running Pyda v0.0.1
 at main, rsp=0x7fff1303f078
 return address: 0x7f3c50420d90
@@ -81,12 +81,12 @@ docker run -it pyda
 
 Usage:
 ```sh
-./pyda <script_path> [script_args] -- <bin_path> [bin_args]
+pyda <script_path> [script_args] -- <bin_path> [bin_args]
 ```
 
 "Hello World" example: Dump a list of indirect call targets in a binary
 ```sh
-./pyda examples/resolve_indirect_calls.py -- /usr/bin/ls
+pyda examples/resolve_indirect_calls.py -- /usr/bin/ls
 ```
 
 ### Examples
@@ -131,10 +131,19 @@ you probably don't need this tool.
 Generally, yes. Just
 run `pyda` with `LD_LIBRARY_PATH` -- the target uses a normal loader.
 
+**Can I run this tool on itself?**
+
+Probably not. But you ***can*** run the Python interpreter under it.
+```
+$ pyda <script> -- python3
+Python 3.10.12 (main, Nov 20 2023, 15:14:05) [GCC 11.4.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> 
+```
 
 ## How it works
 
-Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `./pyda` is just a `drrun` wrapper. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
+Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `pyda` is just a `drrun` wrapper. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
 
 Dynamorio normally supports a variety of custom "tools" or "clients"
 which can insert instrumentation into generic targets using a variety
