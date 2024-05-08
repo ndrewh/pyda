@@ -3,8 +3,9 @@ Pyda
 
 Pyda lets you write simple *dynamic* binary analysis tools using Python.
 
-Pyda injects a CPython interpreter ***in the same process as the target***. This means
-your Python code can directly manipulate memory in the target process, without going through ptrace.
+Pyda combines [Dynamorio](https://dynamorio.org)-based instrumentation with a CPython interpreter, allowing you to ***write hooks
+in Python*** that can manipulate memory/registers in the target, without going through ptrace. The interpreter runs in the same
+process as the target, resulting in a faster and more pleasant development experience vs. GDB.
 
 It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndbg),
 or complex dynamic instrumentation frameworks (Frida, Dynamorio, DynInst, PIN, etc.).
@@ -71,11 +72,8 @@ attempts to isolate our libc from the target, OS structures (e.g. fds)
 are shared.
 
 #### Known issues:
-- Parts of some packages cannot be imported (e.g. `from pwn import *`)
-- Currently cannot update RIP in hooks (cannot redirect execution)
-
-#### Planned features
-- Arbitrary function calls into the target from Python using ctypes.
+- Parts of some packages cannot be imported (e.g. `from pwn import *`) (ndrewh/pyda#4)
+- Currently cannot update RIP in hooks (cannot redirect execution) (ndrewh/pyda#3)
 
 ## Usage
 
@@ -154,7 +152,7 @@ Type "help", "copyright", "credits" or "license" for more information.
 Yes. Script arguments can be passed before
 the `--` when running `pyda`. For example:
 ```sh
-pyda script.py --option1 --optinon2 -- ls
+pyda script.py --option1 --option2 -- ls
 ```
 
 Your script can parse these options like normal
