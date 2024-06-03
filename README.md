@@ -117,6 +117,9 @@ p.mem[0x100000:0x100008] = b"\x00" * 8
 # Read registers
 p.regs.rax # (int)
 
+# Write registers
+p.regs.rax = 0x1337133713371337
+
 # Get process base
 p.maps["libc.so.6"] # (int)
 
