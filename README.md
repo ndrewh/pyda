@@ -4,7 +4,7 @@ Pyda
 Pyda lets you write simple *dynamic* binary analysis tools using Python.
 
 Pyda combines [Dynamorio](https://dynamorio.org)-based instrumentation with a CPython interpreter, allowing you to ***write hooks
-in Python*** that can manipulate memory/registers in the target, without going through ptrace. The interpreter runs in the same
+in Python*** that can manipulate memory/registers in the target, ***without going through ptrace***. The interpreter runs in the same
 process as the target, resulting in a faster and more pleasant development experience vs. GDB.
 
 It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndbg),
