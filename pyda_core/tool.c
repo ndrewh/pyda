@@ -12,6 +12,8 @@
 #include "pyda_core.h"
 #include "pyda_threads.h"
 
+extern void __ctype_init();
+
 void python_init();
 void python_main_thread(void*);
 void python_aux_thread(void*);
@@ -32,7 +34,6 @@ extern int is_dynamorio_running;
 
 pthread_cond_t python_thread_init1;
 pthread_cond_t python_thread_init2;
-pthread_mutex_t python_thread_init1_mutex;
 
 int g_pyda_tls_idx;
 client_id_t pyda_client_id;
@@ -40,8 +41,8 @@ client_id_t pyda_client_id;
 DR_EXPORT void
 dr_client_main(client_id_t id, int argc, const char *argv[])
 {
-    dr_set_client_name("DynamoRIO Python Hook Client",
-                       "https://github.com/ndrewh");
+    dr_set_client_name("Pyda",
+                       "https://github.com/ndrewh/pyda");
     
     pyda_client_id = id;
 
@@ -51,7 +52,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     is_dynamorio_running = 1;
 
     /* make it easy to tell, by looking at log file, which client executed */
-    DEBUG_PRINTF("Client 'python_hook' initializing\n");
+    DEBUG_PRINTF("Client 'pyda' initializing\n");
 
     // Dynamically patch python
     patch_python();
@@ -69,7 +70,6 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
                                             NULL);
 
     pthread_cond_init(&python_thread_init1, 0);
-    pthread_mutex_init(&python_thread_init1_mutex, 0);
 
     g_pyda_tls_idx = drmgr_register_tls_field();
 }
@@ -90,11 +90,24 @@ void thread_init_event(void *drcontext) {
         t = pyda_mk_thread(global_proc);
     }
 
+    DEBUG_PRINTF("thread_init_event %p thread %d\n", (void*)t, dr_get_thread_id(drcontext));
+
+    // WARN: This must use drcontext passed in.
     drmgr_set_tls_field(drcontext, g_pyda_tls_idx, (void*)t);
+
+    // some init that python requires(?)
+    __ctype_init();
+
+    if (global_proc->main_thread->python_exited) {
+        pyda_thread_destroy(t); // decrement refcount, immediately exit
+
+        // WARN: This must use drcontext passed in.
+        drmgr_set_tls_field(drcontext, g_pyda_tls_idx, (void*)NULL);
+        return;
+    }
 
     // Every thread has its own corresponding python thread
     if (t == global_proc->main_thread) {
-        python_init();
         dr_create_client_thread(python_main_thread, t);
     } else {
         dr_create_client_thread(python_aux_thread, t);
@@ -103,29 +116,31 @@ void thread_init_event(void *drcontext) {
     // Store the first pc, we will intrument it to call break
     if (t == global_proc->main_thread) {
         module_data_t *main_mod = dr_get_main_module();
-        t->start_pc = (void*)main_mod->entry_point;
+        t->proc->entrypoint = (void*)main_mod->entry_point;
     } else {
         dr_mcontext_t mc;
         mc.size = sizeof(mc);
         mc.flags = DR_MC_ALL;
         dr_get_mcontext(drcontext, &mc);
-        t->start_pc = (void*)mc.rip;
-        DEBUG_PRINTF("start_pc: %p\n", t->start_pc);
-        dr_flush_region(t->start_pc, 1);
+
+        DEBUG_PRINTF("aux thread initial break\n");
+        pyda_initial_break(t);
+        DEBUG_PRINTF("aux thread initial break end\n");
     }
-    DEBUG_PRINTF("thread_init_event: %p\n", t->start_pc);
+    DEBUG_PRINTF("thread_init_event end: %p\n", (void*)t);
 }
 
 void thread_exit_event(void *drcontext) {
-    DEBUG_PRINTF("thread_exit_event\n"); 
-    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    DEBUG_PRINTF("thread_exit_event: %p\n", t);
-    dr_abort();
+    pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
 
-    pyda_break(t);
-    DEBUG_PRINTF("broke end\n", t);
-    // TODO: exit event
-    pyda_thread_destroy(t);
+    DEBUG_PRINTF("thread_exit_event: %p thread id %d\n", t, dr_get_thread_id(drcontext));
+
+    if (t->proc->main_thread == t && !t->python_exited) {
+        pyda_break_noblock(t);
+    } else {
+        // TODO: thread exit hook?
+        pyda_thread_destroy(t);
+    }
 }
 
 void python_init() {
@@ -157,11 +172,15 @@ void python_init() {
 
     PyConfig_SetBytesArgv(&config, argc, (char * const *)argv);
     config.parse_argv = 0;
+
+    // Output is much happier if we don't buffer.
+    config.buffered_stdio = 0;
+
     Py_InitializeFromConfig(&config);
 
-    pthread_mutex_lock(&python_thread_init1_mutex);
     DEBUG_PRINTF("python_init2\n");
 
+#ifndef NDEBUG
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
@@ -170,11 +189,8 @@ void python_init() {
                        "print('You are running Pyda v" PYDA_VERSION ".');\n"
     );
     DEBUG_PRINTF("python_init3\n");
-    // PyGILState_Release(gstate);
-    pthread_mutex_unlock(&python_thread_init1_mutex);
-    // temporary
-    PyThreadState *_save;
-    Py_UNBLOCK_THREADS
+    PyGILState_Release(gstate);
+#endif
 }
 
 static dr_emit_flags_t
@@ -192,7 +208,7 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 
     // XXX: I don't think this is safe, since the thread that updates
     // the code cache may not be the executing thread.
-    if (instr_get_app_pc(instr) == t->start_pc) {
+    if (instr_get_app_pc(instr) == t->proc->entrypoint) {
         DEBUG_PRINTF("** Found PC\n");
         dr_insert_clean_call(drcontext, bb, instrlist_first_app(bb), (void *)thread_entrypoint_break,
                          false /* save fpstate */, 0);
@@ -208,11 +224,11 @@ static void thread_entrypoint_break() {
     DEBUG_PRINTF("entrypoint (break)\n");
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    fprintf(stderr, "[PYDA] New thread %ld\n", t->tid);
+    DEBUG_PRINTF("[PYDA] New thread %ld\n", t->tid);
 
     pyda_initial_break(t);
     if (pyda_flush_hooks()) {
-        DEBUG_PRINTF("dr_flush_hooks\n");
+        DEBUG_PRINTF("entrypoint: flush hooks\n");
 
         // We may have flushed the current fragment, so we have to call
         // dr_redirect_execution instead of returning.
@@ -220,16 +236,14 @@ static void thread_entrypoint_break() {
         mc.size = sizeof(mc);
         mc.flags = DR_MC_ALL;
         dr_get_mcontext(dr_get_current_drcontext(), &mc);
-        mc.pc = t->start_pc;
-
-        t->start_pc = 0; // avoid breaking a second time
-
+        mc.pc = t->proc->entrypoint;
+        t->proc->entrypoint = 0; // avoid breaking a second time
+        dr_flush_region((void*)mc.pc, 1);
         dr_redirect_execution(&mc);
     }
     DEBUG_PRINTF("entrypoint (break end)\n");
 }
 
-void __ctype_init();
 void drmgr_thread_init_event(void*);
 
 static void* python_thread_init(pyda_thread *t) {
@@ -250,7 +264,8 @@ void python_main_thread(void *arg) {
     void *drcontext = dr_get_current_drcontext();
     void *tls = python_thread_init(t);
 
-    pthread_mutex_lock(&python_thread_init1_mutex);
+    python_init();
+
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
@@ -274,20 +289,30 @@ void python_main_thread(void *arg) {
     fclose(f);
 
 python_exit:
-
     DEBUG_PRINTF("Script exited...\n");
+    t->python_exited = 1;
 
-    PyGILState_Release(gstate);
-    pthread_mutex_unlock(&python_thread_init1_mutex);
+    // dr_client_thread_set_suspendable(true);
 
-    dr_client_thread_set_suspendable(true);
-    pyda_yield(t); // unblock
+    if (t->yield_count == 0) {
+        dr_fprintf(STDERR, "[PYDA] WARN: Did you forget to call p.run()?\n");
+        PyGILState_Release(gstate);
+        pyda_yield(t); // unblock (note: blocking)
+    } else {
+        // This call will block until the main thread is the last.
+        DEBUG_PRINTF("python_main_thread destroy\n");
+        pyda_thread_destroy_last(t);
+        DEBUG_PRINTF("python_main_thread destroy done\n");
+
+        DEBUG_PRINTF("Py_FinalizeEx in thread %d\n", dr_get_thread_id(drcontext));
+        if (Py_FinalizeEx() < 0) {
+            DEBUG_PRINTF("WARN: Python finalization failed\n");
+        }
+        DEBUG_PRINTF("Py_FinalizeEx done\n");
+    }
 
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
-    DEBUG_PRINTF("Calling dr_exit\n");
-
-    // pyda_thread_destroy(t);
-    drmgr_exit();
+    DEBUG_PRINTF("python_main_thread return\n");
 }
 
 void python_aux_thread(void *arg) {
@@ -298,15 +323,27 @@ void python_aux_thread(void *arg) {
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
+    DEBUG_PRINTF("python_aux_thread id %d\n", dr_get_thread_id(drcontext));
+
     // We just call the thread init hook, if one exists
     if (t->proc->thread_init_hook) {
-        PyObject *result = PyObject_CallFunctionObjArgs(t->proc->thread_init_hook, t->proc->main_thread->py_obj, NULL);
+        DEBUG_PRINTF("Calling thread_init_hook\n");
+        PyObject *result = PyObject_CallFunctionObjArgs(t->proc->thread_init_hook, t->proc->py_obj, NULL);
+        if (result == NULL) {
+            PyErr_Print();
+            dr_fprintf(STDERR, "[Pyda] ERROR: Thread entry hook failed. Continuing.\n");
+            // dr_abort();
+        }
     }
 
     PyGILState_Release(gstate);
 
     dr_client_thread_set_suspendable(true);
-    pyda_yield(t); // unblock
+    DEBUG_PRINTF("python_aux_thread 4\n");
 
+    pyda_yield_noblock(t);
+
+    DEBUG_PRINTF("python_aux_thread 5\n");
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
+    DEBUG_PRINTF("python_aux_thread 6\n");
 }

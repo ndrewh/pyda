@@ -38,7 +38,19 @@ int pyda_thread_setspecific(pthread_key_t key, void *val) {
 
 int pyda_cond_init(pthread_cond_t *condvar, const pthread_condattr_t *attr) {
     // DEBUG_PRINTF("pthread_cond_init %p\n", condvar);
-    return pthread_cond_init(condvar, attr);
+    int res;
+    if (attr) {
+        pthread_condattr_setpshared((pthread_condattr_t*)attr, PTHREAD_PROCESS_SHARED);
+        res = pthread_cond_init(condvar, attr);
+    } else {
+        pthread_condattr_t attr2;
+        pthread_condattr_init(&attr2);
+        pthread_condattr_setpshared(&attr2, PTHREAD_PROCESS_SHARED);
+        res = pthread_cond_init(condvar, &attr2);
+        pthread_condattr_destroy(&attr2);
+    }
+
+    return res;
 }
 int pyda_cond_timedwait(pthread_cond_t *condvar, pthread_mutex_t *mutex, const struct timespec *abstime) {
     // DEBUG_PRINTF("pthread_cond_timedwait %p %p\n", condvar, mutex);
@@ -73,4 +85,21 @@ void* pyda_dlsym(void *handle, const char *symbol) {
     // DEBUG_PRINTF("pyda_dlsym %s\n", symbol);
     // DR_ASSERT(IS_CLIENT_THREAD(drcontext));
     return get_private_library_address(handle, symbol);
+}
+
+int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
+    // DEBUG_PRINTF("pthread_mutex_init %p\n", mutex);
+    int res;
+    if (attr) {
+        pthread_mutexattr_setpshared((pthread_mutexattr_t*)attr, PTHREAD_PROCESS_SHARED);
+        res = pthread_mutex_init(mutex, attr);
+    } else {
+        pthread_mutexattr_t attr2;
+        pthread_mutexattr_init(&attr2);
+        pthread_mutexattr_setpshared(&attr2, PTHREAD_PROCESS_SHARED);
+        res = pthread_mutex_init(mutex, &attr2);
+        pthread_mutexattr_destroy(&attr2);
+    }
+
+    return res;
 }

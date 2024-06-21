@@ -36,6 +36,12 @@ struct pyda_process_s {
 
     pyda_thread *main_thread;
     PyObject *thread_init_hook;
+    PyObject *py_obj;
+
+    pthread_cond_t thread_exit_cond;
+    pthread_mutex_t refcount_mutex;
+
+    void* entrypoint;
 };
 
 struct pyda_thread_s {
@@ -46,13 +52,16 @@ struct pyda_thread_s {
     pthread_mutex_t mutex;
 
     int python_yielded, app_yielded;
-    void* start_pc;
 
     pyda_process *proc;
-    PyObject *py_obj;
+    // PyObject *py_obj;
 
     int rip_updated_in_cleancall;
     int skip_next_hook;
+    int python_exited;
+    int yield_count;
+
+    int errored;
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
@@ -64,14 +73,17 @@ pyda_thread* pyda_mk_thread(pyda_process*);
 
 void pyda_process_destroy(pyda_process *p);
 void pyda_thread_destroy(pyda_thread *t);
+void pyda_thread_destroy_last(pyda_thread *t);
 
 PyObject *pyda_run_until(pyda_thread *, uint64_t addr);
 
 // yield from python to the executable
 void pyda_yield(pyda_thread *t);
+void pyda_yield_noblock(pyda_thread *t); // used when thread entry hook returns, we don't need to return to python.
 
 // break from the executable to python
 void pyda_break(pyda_thread *t);
+void pyda_break_noblock(pyda_thread *t); // used when app exits, no need to return to it.
 
 void pyda_initial_break(pyda_thread *t);
 void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback);

@@ -121,12 +121,17 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
         return NULL;
     }
 
+    if (t->proc->py_obj) {
+        PyErr_SetString(PyExc_RuntimeError, "You may only call process() once");
+        return NULL;
+    }
+
     PyType_Ready(&PydaProcess_Type);
     result = PyObject_NEW(PydaProcess, &PydaProcess_Type);
     if (result != NULL)
         result->main_thread = t;
     
-    result->main_thread->py_obj = (PyObject*)result;
+    t->proc->py_obj = (PyObject*)result;
 
     PyBuffer_Release(&bin_path);
     return (PyObject*)result;
@@ -335,7 +340,6 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("register_hook: %llx\n", addr);
 #endif // PYDA_DYNAMORIO_CLIENT
-    Py_INCREF(callback);
     pyda_add_hook(p->main_thread->proc, addr, callback);
 
     Py_INCREF(Py_None);

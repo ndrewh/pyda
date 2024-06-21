@@ -12,7 +12,7 @@ index 8d2221cfd8..1372cbc291 100644
  
  #if defined(FAULTHANDLER_USE_ALT_STACK) && defined(HAVE_LINUX_AUXVEC_H) && defined(HAVE_SYS_AUXV_H)
 diff --git a/Python/thread_pthread.h b/Python/thread_pthread.h
-index 35b9810aa3..4085158070 100644
+index 35b9810aa3..130528aec3 100644
 --- a/Python/thread_pthread.h
 +++ b/Python/thread_pthread.h
 @@ -100,7 +100,7 @@
@@ -24,3 +24,12 @@ index 35b9810aa3..4085158070 100644
  #endif
  
  
+@@ -392,7 +392,7 @@ PyThread_allocate_lock(void)
+     lock = (sem_t *)PyMem_RawMalloc(sizeof(sem_t));
+ 
+     if (lock) {
+-        status = sem_init(lock,0,1);
++        status = sem_init(lock,1,1);
+         CHECK_STATUS("sem_init");
+ 
+         if (error) {
