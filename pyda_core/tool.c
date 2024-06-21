@@ -92,6 +92,11 @@ void thread_init_event(void *drcontext) {
 
     drmgr_set_tls_field(drcontext, g_pyda_tls_idx, (void*)t);
 
+    if (global_proc->main_thread->python_exited) {
+        pyda_thread_destroy(t); // decrement refcount
+        return;
+    }
+
     // Every thread has its own corresponding python thread
     if (t == global_proc->main_thread) {
         python_init();
@@ -110,19 +115,20 @@ void thread_init_event(void *drcontext) {
         mc.flags = DR_MC_ALL;
         dr_get_mcontext(drcontext, &mc);
         t->start_pc = (void*)mc.rip;
-        DEBUG_PRINTF("start_pc: %p\n", t->start_pc);
-        dr_flush_region(t->start_pc, 1);
+        // DEBUG_PRINTF("start_pc: %p\n", t->start_pc);
+        // dr_flush_region(t->start_pc, 1);
     }
-    DEBUG_PRINTF("thread_init_event: %p\n", t->start_pc);
+    DEBUG_PRINTF("thread_init_event: %p (entry %p)\n", t, t->start_pc);
 }
 
 void thread_exit_event(void *drcontext) {
     DEBUG_PRINTF("thread_exit_event\n"); 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     DEBUG_PRINTF("thread_exit_event: %p\n", t);
-    dr_abort();
 
-    pyda_break(t);
+    if (!t->python_exited)
+        pyda_break(t);
+
     DEBUG_PRINTF("broke end\n", t);
     // TODO: exit event
     pyda_thread_destroy(t);
@@ -274,20 +280,23 @@ void python_main_thread(void *arg) {
     fclose(f);
 
 python_exit:
-
     DEBUG_PRINTF("Script exited...\n");
+    t->python_exited = 1;
 
     PyGILState_Release(gstate);
     pthread_mutex_unlock(&python_thread_init1_mutex);
 
     dr_client_thread_set_suspendable(true);
-    pyda_yield(t); // unblock
+
+    if (t->yield_count == 0) {
+        dr_fprintf(STDERR, "[PYDA] WARN: Did you forget to call p.run()?\n");
+        pyda_yield(t); // unblock (note: blocking)
+    }
 
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
-    DEBUG_PRINTF("Calling dr_exit\n");
 
     // pyda_thread_destroy(t);
-    drmgr_exit();
+    // drmgr_exit();
 }
 
 void python_aux_thread(void *arg) {
@@ -298,15 +307,29 @@ void python_aux_thread(void *arg) {
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
+    DEBUG_PRINTF("python_aux_thread thread_init_hook %p\n", t->proc->thread_init_hook);
+
     // We just call the thread init hook, if one exists
     if (t->proc->thread_init_hook) {
-        PyObject *result = PyObject_CallFunctionObjArgs(t->proc->thread_init_hook, t->proc->main_thread->py_obj, NULL);
+        DEBUG_PRINTF("Calling thread_init_hook\n");
+        PyObject *result = PyObject_CallFunctionObjArgs(t->proc->thread_init_hook, t->proc->py_obj, NULL);
+        if (result == NULL) {
+            PyErr_Print();
+            dr_fprintf(STDERR, "[Pyda] ERROR: Hook call failed. Aborting.\n");
+            dr_abort();
+        }
     }
 
     PyGILState_Release(gstate);
 
     dr_client_thread_set_suspendable(true);
-    pyda_yield(t); // unblock
+    DEBUG_PRINTF("python_aux_thread 4\n");
 
+    // pyda_yield(t); // unblock (note: blocking)
+    t->python_yielded = 1;
+    pthread_cond_signal(&t->resume_cond);
+
+    DEBUG_PRINTF("python_aux_thread 5\n");
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
+    DEBUG_PRINTF("python_aux_thread 6\n");
 }

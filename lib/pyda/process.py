@@ -39,7 +39,7 @@ class Process():
         self.hook(addr, call_hook)
     
     def set_thread_entry(self, callback):
-        self._p.set_thread_init_hook(callback)
+        self._p.set_thread_init_hook(lambda p: callback(self))
     
     def read(self, addr, size):
         return self._p.read(addr, size)

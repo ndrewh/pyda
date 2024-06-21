@@ -18,11 +18,12 @@ pyda_process* pyda_mk_process() {
     ABORT_IF_NODYNAMORIO;
 
     pyda_process *proc = dr_global_alloc(sizeof(pyda_process));
-    proc->refcount = 2;
+    proc->refcount = 1;
     proc->dirty_hooks = 0;
     proc->main_thread = pyda_mk_thread(proc);
     proc->callbacks = NULL;
     proc->thread_init_hook = NULL;
+    proc->py_obj = NULL;
     return proc;
 }
 
@@ -44,11 +45,14 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->python_yielded = 0;
     thread->app_yielded = 0;
     thread->proc = proc;
+    thread->proc->refcount++; // TODO: lock
+    thread->yield_count = 0;
 
     static volatile unsigned int tid = 0;
     thread->tid = dr_atomic_add32_return_sum(&tid, 1);
     thread->rip_updated_in_cleancall = 0;
     thread->skip_next_hook = 0;
+    thread->python_exited = 0;
 
     // PyErr_SetString(PyExc_RuntimeError, "OK");
     return thread;
@@ -74,6 +78,7 @@ void pyda_thread_destroy(pyda_thread *t) {
 // yield from python to the executable
 void pyda_yield(pyda_thread *t) {
     t->python_yielded = 1;
+    t->yield_count++;
     pthread_cond_signal(&t->resume_cond);
     DEBUG_PRINTF("pyda_yield\n");
 
@@ -206,7 +211,7 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     t->cur_context.pc = (app_pc)cb->addr;
     t->rip_updated_in_cleancall = 0;
 
-    PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->py_obj, NULL);
+    PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->proc->py_obj, NULL);
     if (result == NULL) {
         PyErr_Print();
         dr_fprintf(STDERR, "[Pyda] ERROR: Hook call failed. Aborting.\n");

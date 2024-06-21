@@ -36,6 +36,7 @@ struct pyda_process_s {
 
     pyda_thread *main_thread;
     PyObject *thread_init_hook;
+    PyObject *py_obj;
 };
 
 struct pyda_thread_s {
@@ -49,10 +50,12 @@ struct pyda_thread_s {
     void* start_pc;
 
     pyda_process *proc;
-    PyObject *py_obj;
+    // PyObject *py_obj;
 
     int rip_updated_in_cleancall;
     int skip_next_hook;
+    int python_exited;
+    int yield_count;
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
