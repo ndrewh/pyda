@@ -16,6 +16,7 @@
 extern int is_dynamorio_running;
 typedef struct pyda_hook_s pyda_hook;
 typedef struct pyda_thread_s pyda_thread;
+typedef struct pyda_process_s pyda_process;
 
 // Since we have multiple threads running, we need to keep track of
 // which one is holding the GIL.
@@ -28,11 +29,17 @@ struct pyda_hook_s {
     pyda_hook *next;
 };
 
-struct pyda_thread_s {
-    unsigned long pid;
-    uint64_t register_state[32];
-
+struct pyda_process_s {
     pyda_hook *callbacks;
+    int dirty_hooks;
+    int refcount;
+
+    pyda_thread *main_thread;
+    PyObject *thread_init_hook;
+};
+
+struct pyda_thread_s {
+    unsigned long tid;
 
     pthread_cond_t resume_cond;
     pthread_cond_t break_cond;
@@ -40,18 +47,24 @@ struct pyda_thread_s {
 
     int python_yielded, app_yielded;
     void* start_pc;
-    int dirty_hooks;
 
-    int refcount;
-
+    pyda_process *proc;
     PyObject *py_obj;
+
+    int rip_updated_in_cleancall;
+    int skip_next_hook;
+
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
 #endif
 };
 
-pyda_thread* pyda_mk_process();
-void pyda_process_destroy(pyda_thread *t);
+pyda_process* pyda_mk_process();
+pyda_thread* pyda_mk_thread(pyda_process*);
+
+void pyda_process_destroy(pyda_process *p);
+void pyda_thread_destroy(pyda_thread *t);
+
 PyObject *pyda_run_until(pyda_thread *, uint64_t addr);
 
 // yield from python to the executable
@@ -61,8 +74,10 @@ void pyda_yield(pyda_thread *t);
 void pyda_break(pyda_thread *t);
 
 void pyda_initial_break(pyda_thread *t);
-void pyda_add_hook(pyda_thread *t, uint64_t addr, PyObject *callback);
-pyda_hook* pyda_get_callback(pyda_thread *t, void* addr);
+void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback);
+void pyda_remove_hook(pyda_process *p, uint64_t addr);
+void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback);
+pyda_hook* pyda_get_callback(pyda_process *p, void* addr);
 
 // These can only be called from application threads
 int pyda_flush_hooks();

@@ -15,7 +15,7 @@ endif(NOT Python3_FOUND)
 
 target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS})
 target_link_libraries(tool ${Python3_LIBRARIES})
-target_compile_options(tool PUBLIC -DPYDA_DYNAMORIO_CLIENT)
+target_compile_options(tool PUBLIC -DPYDA_DYNAMORIO_CLIENT -Werror)
 
 configure_DynamoRIO_client(tool)
 use_DynamoRIO_extension(tool drmgr)

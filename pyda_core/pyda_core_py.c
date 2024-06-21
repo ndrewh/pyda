@@ -12,16 +12,22 @@ int is_dynamorio_running = 0;
 
 typedef struct {
     PyObject_HEAD
-    pyda_thread *t;
+    pyda_thread *main_thread; // main thread
 } PydaProcess;
 
 static PyObject* pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject *pyda_list_modules(PyObject *self, PyObject *noarg);
+static PyObject *pyda_get_base(PyObject *self, PyObject *args);
+static PyObject *pyda_get_module_for_addr(PyObject *self, PyObject *args);
+static PyObject *pyda_get_current_thread_id(PyObject *self, PyObject *noarg);
+
 static void PydaProcess_dealloc(PydaProcess *self);
-static PyObject *pyda_process_run(PyObject *self, PyObject *noarg);
+static PyObject *PydaProcess_run(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_register_hook(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_unregister_hook(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_thread_init_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_get_register(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_register(PyObject *self, PyObject *args);
-static PyObject *PydaProcess_get_base(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_read(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_write(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_get_main_module(PyObject *self, PyObject *args);
@@ -29,6 +35,14 @@ static PyObject *PydaProcess_get_main_module(PyObject *self, PyObject *args);
 static PyMethodDef PydaGlobalMethods[] = {
     {"process",  (PyCFunction)pyda_core_process, METH_KEYWORDS | METH_VARARGS,
      "Start a process."},
+    {"list_modules",  (PyCFunction)pyda_list_modules, METH_NOARGS,
+     "List all the modules."},
+    {"get_base",  (PyCFunction)pyda_get_base, METH_VARARGS,
+     "Get base address for module"},
+    {"get_module_for_addr",  (PyCFunction)pyda_get_module_for_addr, METH_VARARGS,
+     "Get module info for addr"},
+    {"get_current_thread_id",  (PyCFunction)pyda_get_current_thread_id, METH_NOARGS,
+     "Get current thread id, numbered from 1"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -41,17 +55,30 @@ static struct PyModuleDef pyda_module = {
     PydaGlobalMethods
 };
 
+static PyObject *MemoryError;
+
 PyMODINIT_FUNC
 PyInit_pyda_core(void) {
-    return PyModule_Create(&pyda_module);
+    PyObject *m = PyModule_Create(&pyda_module);
+    MemoryError = PyErr_NewException("pyda.MemoryError", NULL, NULL);
+    Py_XINCREF(MemoryError);
+    if (PyModule_AddObject(m, "MemoryError", MemoryError) < 0) {
+        Py_XDECREF(MemoryError);
+        Py_CLEAR(MemoryError);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    return m;
 }
 
 /* Process class */
 
 static PyMethodDef PydaProcessMethods[] = {
-    {"run",  pyda_process_run, METH_NOARGS, "Run"},
-    {"get_base",  PydaProcess_get_base, METH_VARARGS, "Get base addr for image"},
+    {"run",  PydaProcess_run, METH_NOARGS, "Run"},
     {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
+    {"unregister_hook",  PydaProcess_unregister_hook, METH_VARARGS, "Un-register a hook"},
+    {"set_thread_init_hook",  PydaProcess_set_thread_init_hook, METH_VARARGS, "Register thread init hook"},
     {"get_register",  PydaProcess_get_register, METH_VARARGS, "Get a specific register"},
     {"set_register",  PydaProcess_set_register, METH_VARARGS, "Set a specific register"},
     {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
@@ -88,26 +115,60 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     
     *(char*)(bin_path.buf + bin_path.len) = '\0';
 
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (t != t->proc->main_thread) {
+        PyErr_SetString(PyExc_RuntimeError, "Only the main thread is currently allowed to call process().");
+        return NULL;
+    }
+
     PyType_Ready(&PydaProcess_Type);
     result = PyObject_NEW(PydaProcess, &PydaProcess_Type);
     if (result != NULL)
-        result->t = pyda_thread_getspecific(g_pyda_tls_idx);
+        result->main_thread = t;
     
-    result->t->py_obj = (PyObject*)result;
+    result->main_thread->py_obj = (PyObject*)result;
 
     PyBuffer_Release(&bin_path);
     return (PyObject*)result;
 }
 
 static PyObject *
-pyda_process_run(PyObject* self, PyObject *noarg) {
+PydaProcess_run(PyObject* self, PyObject *noarg) {
     PydaProcess *p = (PydaProcess*)self;
     Py_BEGIN_ALLOW_THREADS
-    pyda_yield(p->t);
+    pyda_yield(p->main_thread);
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("yield returned\n");
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_END_ALLOW_THREADS
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+pyda_list_modules(PyObject* self, PyObject *noarg) {
+#ifdef PYDA_DYNAMORIO_CLIENT
+    PyObject *list = PyList_New(0);
+    dr_module_iterator_t *iter = dr_module_iterator_start();
+    while (dr_module_iterator_hasnext(iter)) {
+        module_data_t *mod = dr_module_iterator_next(iter);
+        PyList_Append(list, PyUnicode_FromString(mod->full_path));
+    }
+    dr_module_iterator_stop(iter);
+    return list;
+#endif // PYDA_DYNAMORIO_CLIENT
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+pyda_get_current_thread_id(PyObject* self, PyObject *noarg) {
+#ifdef PYDA_DYNAMORIO_CLIENT
+    int tid = ((pyda_thread*)pyda_thread_getspecific(g_pyda_tls_idx))->tid;
+    return PyLong_FromLong(tid);
+#endif // PYDA_DYNAMORIO_CLIENT
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -122,6 +183,7 @@ PydaProcess_dealloc(PydaProcess *self)
 static PyObject *
 PydaProcess_get_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
 
     const char *regname;
 
@@ -130,7 +192,7 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     // DEBUG_PRINTF("get_register: %s\n", regname);
-    dr_mcontext_t *mc = &p->t->cur_context;
+    dr_mcontext_t *mc = &t->cur_context;
 
     // TODO: Fix... copilot wrote this. Surely we can write
     // a macro...
@@ -166,6 +228,8 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
         return PyLong_FromUnsignedLong((unsigned long)mc->r15);
     } else if (strcmp(regname, "rdx") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->rdx);
+    } else if (strcmp(regname, "fsbase") == 0) {
+        return PyLong_FromUnsignedLong((unsigned long)dr_get_tls_field(dr_get_current_drcontext()));
     } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->pc);
     }
@@ -178,6 +242,7 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
 static PyObject *
 PydaProcess_set_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
 
     const char *regname;
     unsigned long long val;
@@ -189,7 +254,7 @@ PydaProcess_set_register(PyObject *self, PyObject *args) {
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("set_register: %s %llx\n", regname, val);
     // DEBUG_PRINTF("get_register: %s\n", regname);
-    dr_mcontext_t *mc = &p->t->cur_context;
+    dr_mcontext_t *mc = &t->cur_context;
 
     // TODO: Fix... copilot wrote this. Surely we can write
     // a macro...
@@ -226,9 +291,8 @@ PydaProcess_set_register(PyObject *self, PyObject *args) {
     } else if (strcmp(regname, "rdx") == 0) {
         mc->rdx = val;
     } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
-        // mc->pc = val;
-        PyErr_SetString(PyExc_RuntimeError, "Setting rip is currently not supported");
-        return NULL;
+        mc->pc = (void*)val;
+        t->rip_updated_in_cleancall = 1;
     }
 #endif // PYDA_DYNAMORIO_CLIENT
 
@@ -240,7 +304,6 @@ static PyObject *
 PydaProcess_register_hook(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
 
-    const char *name;
     unsigned long long addr;
     PyObject *callback;
 
@@ -257,7 +320,51 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
     DEBUG_PRINTF("register_hook: %llx\n", addr);
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_INCREF(callback);
-    pyda_add_hook(p->t, addr, callback);
+    pyda_add_hook(p->main_thread->proc, addr, callback);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_set_thread_init_hook(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    PyObject *callback;
+
+    if (!PyArg_ParseTuple(args, "O!", &PyFunction_Type, &callback))
+        return NULL;
+
+    PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
+    if (!code || code->co_argcount != 1) {
+        PyErr_SetString(PyExc_RuntimeError, "Callback must take one argument");
+        return NULL;
+    }
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("set_thread_init_hook\n");
+#endif // PYDA_DYNAMORIO_CLIENT
+    Py_INCREF(callback);
+    pyda_set_thread_init_hook(p->main_thread->proc, callback);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_unregister_hook(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    unsigned long long addr;
+
+    if (!PyArg_ParseTuple(args, "K", &addr)) {
+        return NULL;
+    }
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("unregister_hook: %llx\n", addr);
+#endif // PYDA_DYNAMORIO_CLIENT
+    pyda_remove_hook(p->main_thread->proc, addr);
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -292,7 +399,7 @@ PydaProcess_get_main_module(PyObject *self, PyObject *args) {
 
 
 static PyObject *
-PydaProcess_get_base(PyObject *self, PyObject *args) {
+pyda_get_base(PyObject *self, PyObject *args) {
     const char *name;
 
     Py_buffer bin_path;
@@ -329,6 +436,59 @@ PydaProcess_get_base(PyObject *self, PyObject *args) {
 }
 
 static PyObject *
+pyda_get_module_for_addr(PyObject *self, PyObject *args) {
+    unsigned long addr;
+    if (!PyArg_ParseTuple(args, "K", &addr))
+        return NULL;
+    
+    PyObject *result = NULL;
+    
+#ifdef PYDA_DYNAMORIO_CLIENT
+    unsigned char *base;
+    size_t size;
+    unsigned int prot;
+    unsigned long perms = 0;
+    if (dr_query_memory((void*)addr, &base, &size, &prot)) {
+        if (prot & DR_MEMPROT_READ) {
+            perms |= 4;
+        }
+        if (prot & DR_MEMPROT_WRITE) {
+            perms |= 2;
+        }
+        if (prot & DR_MEMPROT_EXEC) {
+            perms |= 1;
+        }
+    }
+
+    result = PyList_New(0);
+    module_data_t *mod = dr_lookup_module((void*)addr);
+    if (mod) {
+        PyList_Append(result, PyUnicode_FromString(mod->full_path));
+        PyList_Append(result, PyLong_FromUnsignedLong((unsigned long)mod->start));
+        PyList_Append(result, PyLong_FromUnsignedLong((unsigned long)mod->end));
+        PyList_Append(result, PyLong_FromUnsignedLong(perms));
+
+        dr_free_module_data(mod);
+        return result;
+    } else {
+        PyList_Append(result, PyUnicode_FromString("unknown"));
+        PyList_Append(result, PyLong_FromUnsignedLong((unsigned long)base));
+        PyList_Append(result, PyLong_FromUnsignedLong((unsigned long)base + size));
+        PyList_Append(result, PyLong_FromUnsignedLong(perms));
+        return result;
+    }
+
+#else
+    PyErr_SetString(PyExc_RuntimeError, "Not implemented outside of dynamorio");
+    return NULL;
+#endif
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+
+static PyObject *
 PydaProcess_read(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
 
@@ -348,7 +508,7 @@ PydaProcess_read(PyObject *self, PyObject *args) {
     void *buf = malloc(count);
     int success = dr_safe_read((void*)addr, count, buf, NULL);
     if (!success) {
-        PyErr_SetString(PyExc_RuntimeError, "Failed to read memory");
+        PyErr_SetString(MemoryError, "Failed to read memory");
         free(buf);
         return NULL;
     }

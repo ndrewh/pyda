@@ -19,7 +19,7 @@ RUN cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch
 RUN cd /opt/custom-python/cpython-3.10.12/ && ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
       make install -
 
-ARG PYDA_DEBUG=0
+ARG PYDA_DEBUG=1
 
 # install dynamorio
 RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0 
@@ -32,8 +32,6 @@ ENV DYNAMORIO_HOME=/opt/dynamorio/build/
 ENV PYTHONHOME=/opt/custom-python-root/
 ENV PYTHONPATH=/opt/custom-python-root/lib/python3.10/:/opt/pyda/lib
 
-RUN pip3 install pwntools
-
 COPY ./ /opt/pyda/
 WORKDIR /opt/pyda
 RUN mkdir build && cd build && \
@@ -42,6 +40,20 @@ RUN mkdir build && cd build && \
 
 ENV PATH=$PATH:/opt/pyda/bin
 
+RUN pip3 install pwntools
+WORKDIR /tmp
 
-# RUN bash -c "$(wget https://gef.blah.cat/sh -O -)"
-# RUN pip3 install pwntools
+RUN git clone https://github.com/pwndbg/pwndbg.git && \
+    cd pwndbg && git checkout cada600b0f2be0e2873465f59cc9c4c31425951a && \
+    sed -i 's/signal.signal/__import__("pls_no_signal").signal/' pwndbg/__init__.py && \
+    pip3 install -e .
+
+WORKDIR /opt/pyda
+
+ARG PYDA_GEF=1
+RUN bash -c 'if [[ "$PYDA_GEF" = "1" ]]; then \
+    apt install -y file; \
+    PYTHONPATH= PYTHONHOME= bash -c "$(wget https://raw.githubusercontent.com/hugsy/gef/main/scripts/gef.sh -O -)"; \
+    fi'
+
+RUN pip3 install pwntools
