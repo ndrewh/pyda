@@ -64,16 +64,12 @@ Current features:
 - Read and modify registers
 
 ## Limitations
-- Currently untested on multithreaded programs, JITs, non-linux, etc.
+- Currently broken on multithreaded programs, JITs, non-linux, etc.
 - Currently X86_64 only (please contribute ARM64 support!)
 - All of the limitations of Dynamorio apply. The program must be reasonably well behaved.
 - Some state may be shared with the target process; while Dynamorio
 attempts to isolate our libc from the target, OS structures (e.g. fds)
 are shared.
-
-#### Known issues:
-- Parts of some packages cannot be imported (e.g. `from pwn import *`) (ndrewh/pyda#4)
-- Currently cannot update RIP in hooks (cannot redirect execution) (ndrewh/pyda#3)
 
 ## Usage
 
