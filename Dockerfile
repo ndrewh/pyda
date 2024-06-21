@@ -19,7 +19,7 @@ RUN cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch
 RUN cd /opt/custom-python/cpython-3.10.12/ && ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
       make install -
 
-ARG PYDA_DEBUG=1
+ARG PYDA_DEBUG=0
 
 # install dynamorio
 RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0 
@@ -50,7 +50,7 @@ RUN git clone https://github.com/pwndbg/pwndbg.git && \
 
 WORKDIR /opt/pyda
 
-ARG PYDA_GEF=1
+ARG PYDA_GEF=0
 RUN bash -c 'if [[ "$PYDA_GEF" = "1" ]]; then \
     apt install -y file; \
     PYTHONPATH= PYTHONHOME= bash -c "$(wget https://raw.githubusercontent.com/hugsy/gef/main/scripts/gef.sh -O -)"; \
