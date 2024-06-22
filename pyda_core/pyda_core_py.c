@@ -232,6 +232,22 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
         return PyLong_FromUnsignedLong((unsigned long)dr_get_tls_field(dr_get_current_drcontext()));
     } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
         return PyLong_FromUnsignedLong((unsigned long)mc->pc);
+    } else if (strcmp(regname, "xmm0") == 0) {
+        uint64_t val[2];
+        reg_get_value_ex(DR_REG_XMM0, mc, (uint8_t*)&val);
+        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
+    } else if (strcmp(regname, "xmm1") == 0) {
+        uint64_t val[2];
+        reg_get_value_ex(DR_REG_XMM1, mc, (uint8_t*)&val);
+        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
+    } else if (strcmp(regname, "xmm2") == 0) {
+        uint64_t val[2];
+        reg_get_value_ex(DR_REG_XMM2, mc, (uint8_t*)&val);
+        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
+    } else if (strcmp(regname, "xmm3") == 0) {
+        uint64_t val[2];
+        reg_get_value_ex(DR_REG_XMM3, mc, (uint8_t*)&val);
+        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
     }
 #endif // PYDA_DYNAMORIO_CLIENT
 

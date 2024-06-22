@@ -199,7 +199,7 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     } else if ((callback = pyda_get_callback(t->proc, instr_get_app_pc(instr)))) {
         DEBUG_PRINTF("installing hook at %p\n", instr_get_app_pc(instr));
         dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_cleancall,
-                         false /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
+                         true /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
     }
     return DR_EMIT_DEFAULT;
 }
