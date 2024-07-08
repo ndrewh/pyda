@@ -1,9 +1,10 @@
-name: Create and publish a Docker image
+name: Build, Test, and (if needed) Publish Image
 
 on:
   push:
     branches:
       - master
+      - dev
   release:
     types: ['published']
 
@@ -36,9 +37,26 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - uses: docker/build-push-action@v4.1.1
+
+      - name: Build image
+        uses: docker/build-push-action@v4.1.1
         with:
-          push: ${{ github.event_name != 'pull_request' }}
+          load: true
+          push: false
+          tags: pyda_tmp
+          platforms: linux/amd64
+          provenance: false
+          cache-from: type=gha
+      
+      - name: Test
+        run: |
+          docker run -e PYTHONUNBUFFERED=1 --rm --workdir /opt/pyda/tests --entrypoint python3 pyda_tmp run_tests.py
+
+      - name: Push image
+        uses: docker/build-push-action@v4.1.1
+        if: github.event_name != 'pull_request'
+        with:
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           platforms: linux/amd64
           provenance: false
