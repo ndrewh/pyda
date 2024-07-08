@@ -181,16 +181,19 @@ with the `argparse` module.
 
 ## How it works
 
-Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `pyda` is just a `drrun` wrapper. We include compatibility patches for both Dynamorio and CPython. Dynamorio handles all the nasty details: inserting instrumentation, machine state trasitions to/from hooks, etc.
+Pyda runs as a [Dynamorio](https://dynamorio.org) tool: `pyda` is just a `drrun` wrapper that runs the application under dynamorio with our tool loaded. Technically,
+Pyda is "just" a shared object that links against `libPython`---both of which get loaded into the target process by Dynamorio. However, Dynamorio is designed to support
+_targets_ which load the same libraries as required by _tools_ (i.e., by including it's own [private loader](https://dynamorio.org/using.html) for tools).
+As you might imagine, it gets a bit messy to run CPython under a nonstandard loader,
+and we had to include nontrivial patches for both Dynamorio and CPython to make it all work.
+There were also issues with the ["Client Transparency"](https://dynamorio.org/transparency.html)
+aspects of Dynamorio: in particular, our tool's threads reside in a different process group than the target itself
+(despite residing in the same memory space). This causes problems
+with certain concurrency primatives (e.g. `sem_init`/`sem_wait`) that rely on threads being in the same process group.
 
-Dynamorio normally supports a variety of custom "tools" or "clients"
-which can insert instrumentation into generic targets using a variety
-of APIs. Our tool "simply" links against libpython, allowing us to run
-a python interpreter alongside the original program. We run the python
-interpreter in a separate thread, and synchronize this thread
-with target execution.
-
-For hooks, we use the built-in Dynamorio "clean call" mechanism.
+Dynamorio handles all the nasty low-level details: inserting instrumentation, machine state trasitions to/from hooks, etc. Pyda provides
+a CPython extension for registering hooks and proxies machine state modifications to Dynamorio. Pyda itself ends up handling
+a lot of edge cases (think: hooks which throw exceptions, hooks which remove themselves, redirect execution, etc.) and nasty error states, especially surrounding thread creation and cleanup.
 
 ### Multithreading
 
