@@ -40,8 +40,8 @@ class Process():
                 return True
 
     def _syscall_post_hook_dispatch(self, syscall_num):
-        if syscall_num in self._syscall_pre_hooks:
-            for h in self._syscall_pre_hooks[syscall_num]:
+        if syscall_num in self._syscall_post_hooks:
+            for h in self._syscall_post_hooks[syscall_num]:
                 h(self, syscall_num)
 
     def hook(self, addr, callback):

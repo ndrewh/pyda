@@ -53,7 +53,7 @@ def main():
         )
     )
 
-    # err_hook.py tests the case where a hook throws an exception
+    # err_hook.py: hook throws an exception
     # NOTE: Hooks intentionally fail 'gracefully' and do not abort
     res &= run_test(
         "thread_1000.c", "err_hook.py",
@@ -66,7 +66,7 @@ def main():
         )
     )
 
-    # err_thread_entry.py tests the case where a hook throws an exception
+    # err_thread_entry.py: thread entry hook throws an exception
     # NOTE: Hooks intentionally fail 'gracefully' and do not abort
     res &= run_test(
         "thread_1000.c", "err_thread_entry.py",
@@ -75,6 +75,18 @@ def main():
             checkers=[
                 output_checker,
                 lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+            ]
+        )
+    )
+
+    res &= run_test(
+        "simple.c", "test_syscall.py",
+        ExpectedResult(
+            retcode=0,
+            checkers=[
+                output_checker,
+                lambda o, e: o.count(b"pre syscall") == o.count(b"post syscall") + 1, # (+1 for exit)
+                lambda o, e: o.index(b"pre syscall") < o.index(b"post syscall"),
             ]
         )
     )

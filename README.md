@@ -123,7 +123,7 @@ p.regs.rax # (int)
 p.regs.rax = 0x1337133713371337
 
 # Get process base
-p.maps["libc.so.6"] # (int)
+p.maps["libc.so.6"].base # (int)
 
 # Get current thread id (valid in hooks and thread entrypoint)
 p.tid # (int), starts from 1
