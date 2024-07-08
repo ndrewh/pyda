@@ -91,6 +91,18 @@ def main():
         )
     )
 
+    # err_norun.py: user fails to call p.run()
+    res &= run_test(
+        "thread_1000.c", "err_norun.py",
+        ExpectedResult(
+            retcode=0,
+            checkers=[
+                output_checker,
+                lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+            ]
+        )
+    )
+
     if not res:
         exit(1)
 
