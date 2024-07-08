@@ -100,6 +100,7 @@ pyda examples/ltrace.py -- /usr/bin/ls
 - [`ltrace.py`](examples/ltrace.py): Hook all calls to library functions, and print out their arguments
 - [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
 print out the targets during execution
+- [`strace.py`](examples/strace.py): Hook all syscalls and print out their arguments
 
 ### API
 
@@ -124,12 +125,24 @@ p.regs.rax = 0x1337133713371337
 # Get process base
 p.maps["libc.so.6"] # (int)
 
-# Get current thread id (valid in hooks)
+# Get current thread id (valid in hooks and thread entrypoint)
 p.tid # (int), starts from 1
 
-# Register hooks
+# Hooks (functions called before executing the instruction at the specified PC)
 p.hook(0x100000, lambda p: print(f"rsp={hex(p.regs.rsp)}"))
-p.set_thread_entry(lambda p: print(f"tid {p.tid} started"))
+
+# New thread events: called when a new thread starts (just before entrypoint)
+p.set_thread_entry(lambda p: print(f"tid {p.tid} started")) # Called when a new thread is spawned
+
+# Syscall hooks: called for a specific syscall (specified by the first arg)
+# as a pre (before syscall) or post (after syscall) hook.
+#
+# Pre-syscall hooks can optionally return False to skip the syscall.
+# In this case, you are responsible for setting the return value
+# (e.g. with p.regs.rax = 0). Returning any value other than False (or not
+# returning anything at all) will still run the syscall.
+p.syscall_pre(1, lambda p, syscall_num: print(f"write about to be called with {p.regs.rdx} bytes"))
+p.syscall_post(1, lambda p, syscall_num: print(f"write called with {p.regs.rdx} bytes"))
 ```
 
 ### FAQ
