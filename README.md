@@ -22,7 +22,7 @@ pyda <script_name> -- <target> <target_args>
 Example
 -----
 > [!WARNING]
-> This API is not stable and will likely change. Please provide
+> This API is not stable and may change. Please provide
 > feedback on the API by filing an issue.
 
 ```py
@@ -33,7 +33,7 @@ from pwnlib.util.packing import u64
 # Get a handle to the current process
 p = process()
 
-# Get the binary base address
+# You can use pwnlib to get information about the target ELF
 e = ELF(p.exe_path)
 e.address = p.maps[p.exe_path].base
 
@@ -43,8 +43,10 @@ def main_hook(p):
     return_addr = p.read(p.regs.rsp, 8)
     print(f"return address: {hex(u64(return_addr))}")
 
-# Register the hook, and run the binary
+# Register the hook
 p.hook(e.symbols["main"], main_hook)
+
+# Tell Pyda we are ready to go!
 p.run()
 ```
 
@@ -62,9 +64,10 @@ Current features:
 - Hooks (aka "breakpoints" if you prefer) at arbitrary instructions
 - Read and write memory
 - Read and modify registers
+- Supports multithreaded programs
 
 ## Limitations
-- Currently broken on multithreaded programs, JITs, non-linux, etc.
+- Currently Linux only
 - Currently X86_64 only (please contribute ARM64 support!)
 - All of the limitations of Dynamorio apply. The program must be reasonably well behaved.
 - Some state may be shared with the target process; while Dynamorio
@@ -80,19 +83,21 @@ Suggested use is via Docker:
 docker build -t pyda .
 docker run -it pyda
 ```
+(default entrypoint is `/bin/bash` in a ubuntu:22.04 image)
 
 Usage:
 ```sh
 pyda <script_path> [script_args] -- <bin_path> [bin_args]
 ```
 
-"Hello World" example: Dump a list of indirect call targets in a binary
+"Hello World" example: `ltrace`
 ```sh
-pyda examples/resolve_indirect_calls.py -- /usr/bin/ls
+pyda examples/ltrace.py -- /usr/bin/ls
 ```
 
 ### Examples
 
+- [`ltrace.py`](examples/ltrace.py): Hook all calls to library functions, and print out their arguments
 - [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
 print out the targets during execution
 
@@ -119,8 +124,12 @@ p.regs.rax = 0x1337133713371337
 # Get process base
 p.maps["libc.so.6"] # (int)
 
+# Get current thread id (valid in hooks)
+p.tid # (int), starts from 1
+
 # Register hooks
 p.hook(0x100000, lambda p: print(f"rsp={hex(p.regs.rsp)}"))
+p.set_thread_entry(lambda p: print(f"tid {p.tid} started"))
 ```
 
 ### FAQ
@@ -169,6 +178,13 @@ interpreter in a separate thread, and synchronize this thread
 with target execution.
 
 For hooks, we use the built-in Dynamorio "clean call" mechanism.
+
+### Multithreading
+
+There is a single CPython interpreter, so all threads share the same state (globals). When a hook
+is called by a thread, the thread will first acquire the GIL. We maintain a thread-specific
+data structure using Dynamorio's TLS mechanism, which allows us to track thread creation/destruction
+and report thread-specific information (e.g. `p.tid`) in hooks.
 
 ## Contributing
 
