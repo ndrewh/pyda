@@ -108,6 +108,16 @@ void pyda_process_destroy(pyda_process *p) {
     
     p->thread_init_hook = NULL;
 
+    if (p->syscall_pre_hook)
+        Py_DECREF(p->syscall_pre_hook);
+    
+    p->syscall_pre_hook = NULL;
+
+    if (p->syscall_post_hook)
+        Py_DECREF(p->syscall_post_hook);
+    
+    p->syscall_post_hook = NULL;
+
     pyda_hook *cb = p->callbacks;
     while (cb) {
         Py_DECREF(cb->py_func);
@@ -307,13 +317,6 @@ pyda_hook* pyda_get_callback(pyda_process *p, void* addr) {
 }
 
 static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc) {
-    if (t->skip_next_hook) {
-        t->skip_next_hook = 0;
-        return;
-    }
-
-    if (t->errored) return;
-
     *gstate = PyGILState_Ensure();
 
     void *drcontext = dr_get_current_drcontext();
@@ -337,7 +340,6 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
             dr_flush_file(STDERR);
             t->errored = 1;
         }
-        pyda_flush_hooks(); // There is no risk of invalidating the current block here, since we are about to do a syscall
         dr_set_mcontext(drcontext, &t->cur_context);
         PyGILState_Release(*gstate);
         return;
@@ -368,6 +370,13 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     PyGILState_STATE gstate;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
 
+    if (t->skip_next_hook) {
+        t->skip_next_hook = 0;
+        return;
+    }
+
+    if (t->errored) return;
+
     thread_prepare_for_python_entry(&gstate, t, cb->addr);
 
     DEBUG_PRINTF("cleancall %p %p %p\n", cb, cb->py_func, t);
@@ -392,6 +401,7 @@ void pyda_hook_cleancall(pyda_hook *cb) {
 int pyda_hook_syscall(int syscall_num, int is_pre) {
     PyGILState_STATE gstate;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (t->errored) return 1;
 
     PyObject *hook = (is_pre ? t->proc->syscall_pre_hook : t->proc->syscall_post_hook);
     if (!hook) return 1;
