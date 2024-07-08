@@ -3,13 +3,46 @@ from dataclasses import dataclass
 import pyda_core
 
 class Process():
-    def __init__(self, handle):
+    def __init__(self, handle, prevent_close_stdio=True):
         self._p = handle
         self._hooks = {}
+        self._syscall_pre_hooks = {}
+        self._syscall_post_hooks = {}
+        self._registered_syscall_pre_hook = False
+        self._registered_syscall_post_hook = False
+        self._has_run = False
+
+        def prevent_close(p, num):
+            if p.regs.rdi in [0, 1, 2]:
+                p.regs.rax = 0
+                return False # pre-hooks that return False will prevent the syscall from executing
+            
+            return None
+
+        if prevent_close_stdio:
+            self.syscall_pre(3, prevent_close)
     
     def _hook_dispatch(self, addr):
         for h in self._hooks[addr]:
             h(self)
+    
+    def _syscall_pre_hook_dispatch(self, syscall_num):
+        if syscall_num in self._syscall_pre_hooks:
+            results = []
+            for h in self._syscall_pre_hooks[syscall_num]:
+                results.append(h(self, syscall_num))
+            
+            if False in results and True in results:
+                raise RuntimeError("Cannot have mixed return values from syscall pre-hooks")
+            elif False in results:
+                return False
+            elif True in results:
+                return True
+
+    def _syscall_post_hook_dispatch(self, syscall_num):
+        if syscall_num in self._syscall_pre_hooks:
+            for h in self._syscall_pre_hooks[syscall_num]:
+                h(self, syscall_num)
 
     def hook(self, addr, callback):
         if addr not in self._hooks:
@@ -38,6 +71,32 @@ class Process():
 
         self.hook(addr, call_hook)
     
+    def syscall_pre(self, syscall_num, callback):
+        if self._has_run:
+            raise RuntimeError("Cannot add syscall hooks after process has started")
+
+        if not self._registered_syscall_pre_hook:
+            self._p.set_syscall_pre_hook(lambda p, syscall_num: self._syscall_pre_hook_dispatch(syscall_num))
+            self._registered_syscall_pre_hook = True
+
+        if syscall_num not in self._syscall_pre_hooks:
+            self._syscall_pre_hooks[syscall_num] = [callback]
+        else:
+            self._syscall_pre_hooks[syscall_num].append(callback)
+
+    def syscall_post(self, syscall_num, callback):
+        if self._has_run:
+            raise RuntimeError("Cannot add syscall hooks after process has started")
+
+        if not self._registered_syscall_post_hook:
+            self._p.set_syscall_post_hook(lambda p, syscall_num: self._syscall_post_hook_dispatch(syscall_num))
+            self._registered_syscall_post_hook = True
+
+        if syscall_num not in self._syscall_post_hooks:
+            self._syscall_post_hooks[syscall_num] = [callback]
+        else:
+            self._syscall_post_hooks[syscall_num].append(callback)
+    
     def set_thread_entry(self, callback):
         self._p.set_thread_init_hook(lambda p: callback(self))
     
@@ -61,6 +120,7 @@ class Process():
         raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
     
     def run(self):
+        self._has_run = True
         self._p.run()
     
     @property

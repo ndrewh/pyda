@@ -30,6 +30,10 @@ static dr_emit_flags_t
 event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
                  bool for_trace, bool translating, void *user_data);
 
+static bool filter_syscall_event(void *drcontext, int sysnum);
+static bool pre_syscall_event(void *drcontext, int sysnum);
+static void post_syscall_event(void *drcontext, int sysnum);
+
 extern int is_dynamorio_running;
 
 pthread_cond_t python_thread_init1;
@@ -68,6 +72,10 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     drmgr_register_bb_instrumentation_event(event_analysis,
                                             event_insert,
                                             NULL);
+    
+    drmgr_register_pre_syscall_event(pre_syscall_event);
+    drmgr_register_post_syscall_event(post_syscall_event);
+    dr_register_filter_syscall_event(filter_syscall_event);
 
     pthread_cond_init(&python_thread_init1, 0);
 
@@ -218,6 +226,26 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
                          true /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
     }
     return DR_EMIT_DEFAULT;
+}
+
+static bool filter_syscall_event(void *drcontext, int sysnum) {
+    // TODO: Check the list of desired syscalls
+    return true;
+}
+
+static bool pre_syscall_event(void *drcontext, int sysnum) {
+    if (drcontext != dr_get_current_drcontext()) {
+        DEBUG_PRINTF("pre_syscall_event: drcontext mismatch\n");
+        return true;
+    }
+    return pyda_hook_syscall(sysnum, 1);
+}
+
+static void post_syscall_event(void *drcontext, int sysnum) {
+    if (drcontext != dr_get_current_drcontext()) {
+        DEBUG_PRINTF("post_syscall_event: drcontext mismatch\n");
+    }
+    pyda_hook_syscall(sysnum, 0);
 }
 
 static void thread_entrypoint_break() {

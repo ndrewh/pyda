@@ -36,6 +36,9 @@ struct pyda_process_s {
 
     pyda_thread *main_thread;
     PyObject *thread_init_hook;
+    PyObject *syscall_pre_hook;
+    PyObject *syscall_post_hook;
+
     PyObject *py_obj;
 
     pthread_cond_t thread_exit_cond;
@@ -89,12 +92,14 @@ void pyda_initial_break(pyda_thread *t);
 void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback);
 void pyda_remove_hook(pyda_process *p, uint64_t addr);
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback);
+void pyda_set_syscall_pre_hook(pyda_process *p, PyObject *callback);
+void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback);
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr);
 
 // These can only be called from application threads
 int pyda_flush_hooks();
 void pyda_hook_cleancall(pyda_hook *cb);
-
+int pyda_hook_syscall(int syscall_num, int is_pre);
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 

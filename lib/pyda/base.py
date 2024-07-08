@@ -6,11 +6,11 @@ import sys
 
 INIT = False
 
-def process():
+def process(**kwargs):
     global INIT
 
     # todo: remove the bogus argument
-    proc = Process(pyda_core.process(""))
+    proc = Process(pyda_core.process(""), **kwargs)
 
     if not INIT:
         # by this point, hacks/ is in pythonpath

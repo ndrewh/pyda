@@ -31,6 +31,9 @@ static PyObject *PydaProcess_set_register(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_read(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_write(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_get_main_module(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_syscall_filter(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_syscall_pre_hook(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args);
 
 static PyMethodDef PydaGlobalMethods[] = {
     {"process",  (PyCFunction)pyda_core_process, METH_KEYWORDS | METH_VARARGS,
@@ -84,6 +87,9 @@ static PyMethodDef PydaProcessMethods[] = {
     {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
     {"read",  PydaProcess_read, METH_VARARGS, "Read memory"},
     {"write",  PydaProcess_write, METH_VARARGS, "Write memory"},
+    // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
+    {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
+    {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -360,12 +366,62 @@ PydaProcess_set_thread_init_hook(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_RuntimeError, "Callback must take one argument");
         return NULL;
     }
-
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("set_thread_init_hook\n");
-#endif // PYDA_DYNAMORIO_CLIENT
-    Py_INCREF(callback);
+#endif
+
+    // note: pyda_set_thread_init_hook calls incref
     pyda_set_thread_init_hook(p->main_thread->proc, callback);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+static PyObject *
+PydaProcess_set_syscall_pre_hook(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    PyObject *callback;
+
+    if (!PyArg_ParseTuple(args, "O!", &PyFunction_Type, &callback))
+        return NULL;
+
+    PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
+    if (!code || code->co_argcount != 2) {
+        PyErr_SetString(PyExc_RuntimeError, "Callback must take two arguments");
+        return NULL;
+    }
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("set_syscall_pre_hook\n");
+#endif
+
+    // note: pyda_set_syscall_pre_hook calls incref
+    pyda_set_syscall_pre_hook(p->main_thread->proc, callback);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+static PyObject *
+PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    PyObject *callback;
+
+    if (!PyArg_ParseTuple(args, "O!", &PyFunction_Type, &callback))
+        return NULL;
+
+    PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
+    if (!code || code->co_argcount != 2) {
+        PyErr_SetString(PyExc_RuntimeError, "Callback must take two arguments");
+        return NULL;
+    }
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("set_syscall_post_hook\n");
+#endif
+
+    // note: pyda_set_syscall_pre_hook calls incref
+    pyda_set_syscall_post_hook(p->main_thread->proc, callback);
 
     Py_INCREF(Py_None);
     return Py_None;
