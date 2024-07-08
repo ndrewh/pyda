@@ -14,8 +14,7 @@ It was designed with CTF challenges (pwn/rev) in mind.
 #### Quickstart
 
 ```sh
-docker run -it ghcr.io/ndrewh/pyda
-pyda <script_name> -- <target> <target_args>
+docker run -it ghcr.io/ndrewh/pyda pyda examples/ltrace.py -- ls -al
 ```
 
 
@@ -62,6 +61,7 @@ See [examples/](examples/) for additional examples.
 Current features:
 -----
 - Hooks (aka "breakpoints" if you prefer) at arbitrary instructions
+- Syscall pre/post hooks
 - Read and write memory
 - Read and modify registers
 - Supports multithreaded programs
@@ -74,25 +74,33 @@ Current features:
 attempts to isolate our libc from the target, OS structures (e.g. fds)
 are shared.
 
-## Usage
+## Getting started
 
 ### Install
 
-Suggested use is via Docker:
+Suggested use is via Docker.
+
+Pull the latest release:
+```sh
+docker pull ghcr.io/ndrewh/pyda pyda
+```
+
+Or build it yourself:
 ```sh
 docker build -t pyda .
 docker run -it pyda
 ```
-(default entrypoint is `/bin/bash` in a ubuntu:22.04 image)
 
-Usage:
+(The Pyda image is currently based on `ubuntu:22.04` and we leave the default entrypoint as `/bin/bash`)
+
+### Usage
 ```sh
 pyda <script_path> [script_args] -- <bin_path> [bin_args]
 ```
 
-"Hello World" example: `ltrace`
+"Hello World" example: `ltrace` over `/bin/ls`
 ```sh
-pyda examples/ltrace.py -- /usr/bin/ls
+pyda examples/ltrace.py -- ls
 ```
 
 ### Examples
