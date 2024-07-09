@@ -9,29 +9,26 @@ going through GDB or ptrace.
 
 
 Features:
-- **Asynchronous Breakpoints/Hooks**: Inspect and modify registers
+- **Hooks**: Inspect and modify registers
 and memory at any instruction.
 - **Redirect execution**: Hooks can directly modify the program
 counter; for example, to cause a function to return early or to
 skip over a tricky branch.
 - **Syscall interception**: Syscall pre/post hooks can capture and modify syscall
 arguments, and optionally skip the syscall altogether.
-- **Package support**: You can install and use your favorite packages like
+- **Package support**: Install and use your favorite packages like
 normal using `pip` (e.g. pwntools).
-- **Direct memory access**: Pyda's memory primitives gracefully report
-segmentation faults as Python exceptions. If you're feeling brave,
-you can directly access target memory with `ctypes`, since Pyda runs
-in the same address space as the target.
-- **Graceful multithreading**: All threads share the same Python interpreter
-(including globals), making it easy to write tools that
-aggregate over several threads.  Unlike GDB/ptrace, which suspends *all* threads
-when *any* thread reaches a breakpoint, Pyda hooks execute asynchronously[*](#how-it-works)
-and do not interrupt other threads. 
+- **Graceful multithreading**: Writing tools for multithreaded programs is easy:
+program threads *share* a Python interpreter[*](#multithreading), so you can use globals to
+track and aggregate state over several threads (see: [`p.tid`](#api)).
 
 
-It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndbg),
-or complex dynamic instrumentation frameworks (Frida, Dynamorio, DynInst, PIN, etc.).
-It was designed with CTF challenges (pwn/rev) in mind.
+Pyda is a...
+- **In-process, scriptable debugger**: Pyda hooks can be used to set GDB-style breakpoints
+to inspect and registers and memory. Several third-party packages (e.g. pwntools) can be used
+to look up symbols or parse DWARF info.
+- **Reverse engineering tool**: Pyda can quickly answer questions like "Where do all these indirect jumps go?" in just a few lines of Python.
+
 
 #### Quickstart
 
@@ -40,8 +37,7 @@ docker run -it ghcr.io/ndrewh/pyda pyda examples/ltrace.py -- ls -al
 ```
 
 
-Example
------
+## Example
 > [!WARNING]
 > This API is not stable and may change. Please provide
 > feedback on the API by filing an issue.
@@ -78,22 +74,22 @@ at main, rsp=0x7fff1303f078
 return address: 0x7f3c50420d90
 ```
 
+
+### More examples
 See [examples/](examples/) for additional examples.
 
-Current features:
------
-- Hooks (aka "breakpoints" if you prefer) at arbitrary instructions
-- Syscall pre/post hooks
-- Read and write memory
-- Read and modify registers
-- Supports multithreaded programs
+- [`ltrace.py`](examples/ltrace.py): Hook all calls to library functions, and print out their arguments
+- [`strace.py`](examples/strace.py): Hook all syscalls and print out their arguments
+- [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
+print out the targets during execution
+
 
 ## Limitations
-- Currently Linux only
+- Currently Linux only (please contribute Windows support!)
 - Currently X86_64 only (please contribute ARM64 support!)
 - All of the limitations of Dynamorio apply. The program must be reasonably well behaved.
 - Some state may be shared with the target process; while Dynamorio
-attempts to isolate our libc from the target, OS structures (e.g. fds)
+attempts to isolate our libc (and other libraries) from the target, OS structures (e.g. fds)
 are shared.
 
 ## Getting started
@@ -124,14 +120,6 @@ pyda <script_path> [script_args] -- <bin_path> [bin_args]
 ```sh
 pyda examples/ltrace.py -- ls
 ```
-
-### Examples
-
-- [`ltrace.py`](examples/ltrace.py): Hook all calls to library functions, and print out their arguments
-- [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
-print out the targets during execution
-- [`strace.py`](examples/strace.py): Hook all syscalls and print out their arguments
-
 ### API
 
 You can view all of the available APIs in [process.py](https://github.com/ndrewh/dynamorio-tool/blob/master/lib/pyda/process.py), but in summary:
@@ -227,7 +215,11 @@ a lot of edge cases (think: hooks which throw exceptions, hooks which remove the
 
 ### Multithreading
 
-There is a single CPython interpreter, so all threads share the same state (globals). When a hook
+Unlike GDB/ptrace, which suspends *all* threads
+when *any* thread reaches a breakpoint, Pyda hooks do not interrupt
+other threads.
+
+Programs running under Pyda get a single CPython interpreter, so all threads share the same state (globals). When a hook
 is called by a thread, the thread will first acquire the GIL. We maintain a thread-specific
 data structure using Dynamorio's TLS mechanism, which allows us to track thread creation/destruction
 and report thread-specific information (e.g. `p.tid`) in hooks.
