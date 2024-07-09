@@ -4,14 +4,14 @@ from typing import Optional, Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from argparse import ArgumentParser
+
 @dataclass
 class ExpectedResult:
     retcode: Optional[int] = None
 
     # checker(stdout, stderr) -> bool
     checkers: list[Callable[[bytes, bytes], bool]] = list
-
-Res = ExpectedResult
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
@@ -22,91 +22,89 @@ def output_checker(stdout: bytes, stderr: bytes) -> bool:
     
     return True
 
+TESTS = [
+    # tests whether we can handle a large number of threads with concurrent hooks
+    ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: o.count(b"malloc") == 20000,
+            lambda o, e: o.count(b"free") == 20000,
+            lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 1002))),
+        ]
+    )),
+
+    # tests whether we can handle a large number of threads that do not get waited on
+    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: o.count(b"malloc") > 15000,
+            lambda o, e: o.count(b"free") > 15000,
+            lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
+        ]
+    )),
+
+    # hook throws an exception
+    ("err_hook_throw", "thread_1000.c", "err_hook.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+        ]
+    )),
+
+    # thread entry hook throws an exception
+    ("err_thread_entry_throw", "thread_1000.c", "err_thread_entry.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+        ]
+    )),
+
+    # tests whether we can handle a simple syscall hook
+    ("syscall_hooks", "simple.c", "test_syscall.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: o.count(b"pre syscall") == o.count(b"post syscall") + 1, # (+1 for exit)
+            lambda o, e: o.index(b"pre syscall") < o.index(b"post syscall"),
+        ]
+    )),
+
+    # user fails to call p.run()
+    ("err_norun", "thread_1000.c", "err_norun.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+        ]
+    ))
+]
+
 def main():
-    res = True
+    ap = ArgumentParser()
+    ap.add_argument("--test", help="Run a specific test", default=None)
+    args = ap.parse_args()
 
-    # thread_1000.c tests whether we can handle a large number of threads
-    # with concurrent hooks
-    res &= run_test(
-        "thread_1000.c", "../examples/ltrace_multithreaded.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-                lambda o, e: o.count(b"malloc") == 20000,
-                lambda o, e: o.count(b"free") == 20000,
-                lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 1002))),
-            ]
-        )
-    )
-
-    # thread_nojoin.c tests whether we can handle a large number of threads
-    # that do not get waited on (i.e. they are not joined). Mostly
-    # we just care about the return code and termination here.
-    res &= run_test(
-        "thread_nojoin.c", "../examples/ltrace_multithreaded.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-            ]
-        )
-    )
-
-    # err_hook.py: hook throws an exception
-    # NOTE: Hooks intentionally fail 'gracefully' and do not abort
-    res &= run_test(
-        "thread_1000.c", "err_hook.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-                lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
-            ]
-        )
-    )
-
-    # err_thread_entry.py: thread entry hook throws an exception
-    # NOTE: Hooks intentionally fail 'gracefully' and do not abort
-    res &= run_test(
-        "thread_1000.c", "err_thread_entry.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-                lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
-            ]
-        )
-    )
-
-    res &= run_test(
-        "simple.c", "test_syscall.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-                lambda o, e: o.count(b"pre syscall") == o.count(b"post syscall") + 1, # (+1 for exit)
-                lambda o, e: o.index(b"pre syscall") < o.index(b"post syscall"),
-            ]
-        )
-    )
-
-    # err_norun.py: user fails to call p.run()
-    res &= run_test(
-        "thread_1000.c", "err_norun.py",
-        ExpectedResult(
-            retcode=0,
-            checkers=[
-                output_checker,
-                lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
-            ]
-        )
-    )
+    if args.test is None:
+        res = True
+        for (name, c_file, python_file, expected_result) in TESTS:
+            res &= run_test(c_file, python_file, expected_result, name)
+    else:
+        test = next((t for t in TESTS if t[0] == args.test), None)
+        if test is None:
+            print(f"Test {args.test} not found")
+            exit(1)
+        
+        name, c_file, python_file, expected_result = test
+        res = run_test(c_file, python_file, expected_result, name)
 
     if not res:
         exit(1)
 
-def run_test(c_file, python_file, expected_result):
+def run_test(c_file, python_file, expected_result, test_name):
     # Compile to temporary directory
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -140,11 +138,11 @@ def run_test(c_file, python_file, expected_result):
 
 
         if len(result_str) > 0:
-            print(f"[FAIL] {c_file} {python_file}")
+            print(f"[FAIL] {test_name} ({python_file} {c_file})")
             print(result_str)
             return False
         else:
-            print(f"[OK] {c_file} {python_file}")
+            print(f"[OK] {test_name} ({python_file} {c_file})")
             return True
 
 

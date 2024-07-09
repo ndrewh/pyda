@@ -53,14 +53,14 @@ int pyda_cond_init(pthread_cond_t *condvar, const pthread_condattr_t *attr) {
     return res;
 }
 int pyda_cond_timedwait(pthread_cond_t *condvar, pthread_mutex_t *mutex, const struct timespec *abstime) {
-    // DEBUG_PRINTF("pthread_cond_timedwait %p %p\n", condvar, mutex);
+    // DEBUG_PRINTF("pthread_cond_timedwait %p %p ids %d\n", condvar, mutex, getpid());
     // dr_set_safe_for_sync(false);
     int result = pthread_cond_timedwait(condvar, mutex, abstime);
     // dr_set_safe_for_sync(true);
     return result;
 }
 int pyda_cond_signal(pthread_cond_t *condvar) {
-    // DEBUG_PRINTF("pthread_cond_signal %p\n", condvar);
+    // DEBUG_PRINTF("pthread_cond_signal %p ids %d\n", condvar, getpid());
     return pthread_cond_signal(condvar);
 }
 

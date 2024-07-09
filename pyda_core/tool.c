@@ -107,11 +107,7 @@ void thread_init_event(void *drcontext) {
     __ctype_init();
 
     if (global_proc->main_thread->python_exited) {
-        pyda_thread_destroy(t); // decrement refcount, immediately exit
-
-        // WARN: This must use drcontext passed in.
-        drmgr_set_tls_field(drcontext, g_pyda_tls_idx, (void*)NULL);
-        return;
+        t->errored = 1;
     }
 
     // Every thread has its own corresponding python thread
@@ -143,7 +139,7 @@ void thread_exit_event(void *drcontext) {
 
     DEBUG_PRINTF("thread_exit_event: %p thread id %d\n", t, dr_get_thread_id(drcontext));
 
-    if (t->proc->main_thread == t && !t->python_exited) {
+    if (t->proc->main_thread == t) {
         pyda_break_noblock(t);
     } else {
         // TODO: thread exit hook?
@@ -294,8 +290,10 @@ void python_main_thread(void *arg) {
 
     python_init();
 
-    PyGILState_STATE gstate;
-    gstate = PyGILState_Ensure();
+    if (!PyGILState_Check()) {
+        fprintf(stderr, "[Pyda] Error: GIL expected\n");
+        dr_abort();
+    }
 
     DEBUG_PRINTF("Running script...\n");
 
@@ -319,25 +317,29 @@ void python_main_thread(void *arg) {
 python_exit:
     DEBUG_PRINTF("Script exited...\n");
     t->python_exited = 1;
+    t->errored = 1;
 
     // dr_client_thread_set_suspendable(true);
+    DEBUG_PRINTF("After script exit, GIL status %d\n", PyGILState_Check());
+    PyEval_SaveThread(); // release GIL
 
     if (t->yield_count == 0) {
-        dr_fprintf(STDERR, "[PYDA] WARN: Did you forget to call p.run()?\n");
-        PyGILState_Release(gstate);
+        dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
         pyda_yield(t); // unblock (note: blocking)
-    } else {
-        // This call will block until the main thread is the last.
-        DEBUG_PRINTF("python_main_thread destroy\n");
-        pyda_thread_destroy_last(t);
-        DEBUG_PRINTF("python_main_thread destroy done\n");
-
-        DEBUG_PRINTF("Py_FinalizeEx in thread %d\n", dr_get_thread_id(drcontext));
-        if (Py_FinalizeEx() < 0) {
-            DEBUG_PRINTF("WARN: Python finalization failed\n");
-        }
-        DEBUG_PRINTF("Py_FinalizeEx done\n");
+        DEBUG_PRINTF("Implicit pyda_yield finished\n");
     }
+
+    // This call will block until the main thread is the last.
+    DEBUG_PRINTF("python_main_thread destroy\n");
+    pyda_thread_destroy_last(t);
+    DEBUG_PRINTF("python_main_thread destroy done\n");
+
+    DEBUG_PRINTF("Py_FinalizeEx in thread %d\n", dr_get_thread_id(drcontext));
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    if (Py_FinalizeEx() < 0) {
+        DEBUG_PRINTF("WARN: Python finalization failed\n");
+    }
+    DEBUG_PRINTF("Py_FinalizeEx done\n");
 
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
     DEBUG_PRINTF("python_main_thread return\n");
@@ -348,13 +350,15 @@ void python_aux_thread(void *arg) {
     void *drcontext = dr_get_current_drcontext();
     void *tls = python_thread_init(t);
 
+    DEBUG_PRINTF("python_aux_thread id %d\n", dr_get_thread_id(drcontext));
+
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
-    DEBUG_PRINTF("python_aux_thread id %d\n", dr_get_thread_id(drcontext));
+    DEBUG_PRINTF("python_aux_thread id %d locked\n", dr_get_thread_id(drcontext));
 
     // We just call the thread init hook, if one exists
-    if (t->proc->thread_init_hook) {
+    if (t->proc->thread_init_hook && !t->errored) {
         DEBUG_PRINTF("Calling thread_init_hook\n");
         PyObject *result = PyObject_CallFunctionObjArgs(t->proc->thread_init_hook, t->proc->py_obj, NULL);
         if (result == NULL) {

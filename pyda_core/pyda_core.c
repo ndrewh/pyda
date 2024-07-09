@@ -100,6 +100,9 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
 
 void pyda_process_destroy(pyda_process *p) {
     // We must be holding the GIL lock so we can drop the refs
+    if (PyGILState_Check()) {
+        DEBUG_PRINTF("pyda_process_destroy already holds GIL.")
+    }
     PyGILState_STATE gstate = PyGILState_Ensure();
 
     DEBUG_PRINTF("pyda_process_destroy\n");

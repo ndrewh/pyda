@@ -4,8 +4,6 @@ import pyda_core
 
 # This is a compatibility layer for pwndbg
 
-print("import gdb!")
-
 PARAM_BOOLEAN = 133701
 PARAM_ZINTEGER = 133702
 PARAM_STRING = 133703
