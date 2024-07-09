@@ -4,8 +4,30 @@ Pyda
 Pyda lets you write simple *dynamic* binary analysis tools using Python.
 
 Pyda combines [Dynamorio](https://dynamorio.org)-based instrumentation with a CPython interpreter, allowing you to ***write hooks
-in Python*** that can manipulate memory/registers in the target, ***without going through ptrace***. The interpreter runs in the same
-process as the target, resulting in a faster and more pleasant development experience vs. GDB.
+in Python*** that directly manipulate registers/memory in the target, without
+going through GDB or ptrace.
+
+
+Features:
+- **Asynchronous Breakpoints/Hooks**: Inspect and modify registers
+and memory at any instruction.
+- **Redirect execution**: Hooks can directly modify the program
+counter; for example, to cause a function to return early or to
+skip over a tricky branch.
+- **Syscall interception**: Syscall pre/post hooks can capture and modify syscall
+arguments, and optionally skip the syscall altogether.
+- **Package support**: You can install and use your favorite packages like
+normal using `pip` (e.g. pwntools).
+- **Direct memory access**: Pyda's memory primitives gracefully report
+segmentation faults as Python exceptions. If you're feeling brave,
+you can directly access target memory with `ctypes`, since Pyda runs
+in the same address space as the target.
+- **Graceful multithreading**: All threads share the same Python interpreter
+(including globals), making it easy to write tools that
+aggregate over several threads.  Unlike GDB/ptrace, which suspends *all* threads
+when *any* thread reaches a breakpoint, Pyda hooks execute asynchronously[*](#how-it-works)
+and do not interrupt other threads. 
+
 
 It is intended to fufill many of the same use-cases as debuggers (e.g. GDB/Pwndbg),
 or complex dynamic instrumentation frameworks (Frida, Dynamorio, DynInst, PIN, etc.).
