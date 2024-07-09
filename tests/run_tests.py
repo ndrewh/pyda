@@ -79,6 +79,16 @@ TESTS = [
         ]
     )),
 
+    # tests tid is correct in syscall hooks
+    ("syscall_hooks_multithread", "thread_10.c", "test_syscall.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: all((o.count(f"[tid {i}]".encode('utf-8')) > 1 for i in range(1, 10))) or print(o),
+        ]
+    )),
+
     # user fails to call p.run()
     ("err_norun", "thread_1000.c", "err_norun.py", ExpectedResult(
         retcode=0,

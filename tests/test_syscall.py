@@ -30,7 +30,7 @@ def guess_arg(x):
     return hex(x)
 
 def syscall_pre_hook(p, num):
-    print(f"[pre syscall {num}] (" + ", ".join([
+    print(f"[tid {p.tid}] [pre syscall {num}] (" + ", ".join([
         f"rdi={guess_arg(p.regs.rdi)}",
         f"rsi={guess_arg(p.regs.rsi)}",
         f"rdx={guess_arg(p.regs.rdx)}",
@@ -38,7 +38,7 @@ def syscall_pre_hook(p, num):
     ]) + ")")
 
 def syscall_post_hook(p, num):
-    print(f"[post syscall {num}]")
+    print(f"[tid {p.tid}] [post syscall {num}]")
 
 for snum in range(500):
     p.syscall_pre(snum, syscall_pre_hook)
