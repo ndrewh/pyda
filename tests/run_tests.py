@@ -22,12 +22,16 @@ def output_checker(stdout: bytes, stderr: bytes) -> bool:
     
     return True
 
+def no_warnings_or_errors(stdout: bytes, stderr: bytes) -> bool:
+    return b"[Pyda]" not in stderr
+
 TESTS = [
     # tests whether we can handle a large number of threads with concurrent hooks
     ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
+            no_warnings_or_errors,
             lambda o, e: o.count(b"malloc") == 20000,
             lambda o, e: o.count(b"free") == 20000,
             lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 1002))),
@@ -39,6 +43,7 @@ TESTS = [
         retcode=0,
         checkers=[
             output_checker,
+            no_warnings_or_errors,
             lambda o, e: o.count(b"malloc") > 15000,
             lambda o, e: o.count(b"free") > 15000,
             lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
@@ -68,6 +73,7 @@ TESTS = [
         retcode=0,
         checkers=[
             output_checker,
+            no_warnings_or_errors,
             lambda o, e: o.count(b"pre syscall") == o.count(b"post syscall") + 1, # (+1 for exit)
             lambda o, e: o.index(b"pre syscall") < o.index(b"post syscall"),
         ]

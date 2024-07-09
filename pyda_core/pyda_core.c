@@ -344,6 +344,9 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
             t->errored = 1;
         }
         dr_set_mcontext(drcontext, &t->cur_context);
+        if (t->proc->dirty_hooks) {
+            dr_fprintf(STDERR, "\n[Pyda] WARN: Hooks should not be modified in a syscall. This is UB, continuing.\n");
+        }
         PyGILState_Release(*gstate);
         return;
     }
