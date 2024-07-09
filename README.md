@@ -24,10 +24,10 @@ track and aggregate state over several threads (see: [`p.tid`](#api)).
 
 
 Pyda is a...
-- **In-process, scriptable debugger**: Pyda hooks can be used to set GDB-style breakpoints
-to inspect and registers and memory. Several third-party packages (e.g. pwntools) can be used
+- **In-process, scriptable debugger**: Pyda hooks can be used as GDB-style breakpoints
+to inspect/modify registers and memory. Several packages (e.g. pwntools) can be used
 to look up symbols or parse DWARF info.
-- **Reverse engineering tool**: Pyda can quickly answer questions like "Where do all these indirect jumps go?" in just a few lines of Python.
+- **Reverse engineering tool**: Answer questions like "Where do all these indirect jumps go?" in just a few lines of Python.
 
 
 #### Quickstart
