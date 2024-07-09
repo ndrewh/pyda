@@ -5,30 +5,47 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget python3-pip
       build-essential gdb lcov pkg-config \
       libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
       libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
-      lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+      lzma lzma-dev tk-dev uuid-dev zlib1g-dev && \
+      rm -rf /var/lib/apt/lists/*
 
 # install openssl to make python happy
-RUN cd /usr/src/
-RUN wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz
-RUN tar xf openssl-1.1.1v.tar.gz && cd openssl-1.1.1v/ && ./config --prefix=/usr/local && make && make install
+RUN cd /usr/src/ && \
+      wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz && \
+      tar xf openssl-1.1.1v.tar.gz && \
+      rm openssl-1.1.1v.tar.gz && \
+      cd openssl-1.1.1v/ && \
+      ./config --prefix=/usr/local && \
+      make -j && make install_sw && \
+      rm -rf /usr/src/openssl-1.1.1v/
 
 # install python
-RUN mkdir /opt/custom-python/ && mkdir /opt/custom-python-root/ && cd /opt/custom-python/ && wget https://github.com/python/cpython/archive/refs/tags/v3.10.12.tar.gz && tar xf v3.10.12.tar.gz && rm v3.10.12.tar.gz
-COPY patches/cpython-3.10.12.patch /opt/custom-python/cpython-3.10.12/
-RUN cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch
-RUN cd /opt/custom-python/cpython-3.10.12/ && ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
-      make install -
+COPY patches/cpython-3.10.12.patch /tmp/cpython-3.10.12.patch
+RUN mkdir /opt/custom-python/ && \
+      mkdir /opt/custom-python-root/ && \
+      cd /opt/custom-python/ && \
+      wget https://github.com/python/cpython/archive/refs/tags/v3.10.12.tar.gz && \
+      tar xf v3.10.12.tar.gz && rm v3.10.12.tar.gz && \
+      mv /tmp/cpython-3.10.12.patch /opt/custom-python/cpython-3.10.12/ && \
+      cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch && \
+      cd /opt/custom-python/cpython-3.10.12/ && \
+      ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
+      make install -j && \
+      rm -rf /opt/custom-python/
 
 ARG PYDA_DEBUG=0
 
 # install dynamorio
-RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0 
-WORKDIR /opt/dynamorio/
-COPY patches/dynamorio-10.0.patch /opt/dynamorio/
-RUN git apply dynamorio-10.0.patch
-RUN mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") ..' && make -j
+COPY patches/dynamorio-10.0.patch /tmp
+RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0  && \
+      cd /opt/dynamorio/ && \
+      git apply /tmp/dynamorio-10.0.patch && \
+      rm /tmp/dynamorio-10.0.patch && \
+      mkdir /opt/dynamorio-install/ && \
+      mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ ..' && \
+      make -j && make install && \
+      rm -rf /opt/dynamorio/
 
-ENV DYNAMORIO_HOME=/opt/dynamorio/build/
+ENV DYNAMORIO_HOME=/opt/dynamorio-install/
 ENV PYTHONHOME=/opt/custom-python-root/
 ENV PYTHONPATH=/opt/custom-python-root/lib/python3.10/:/opt/pyda/lib
 
@@ -52,7 +69,7 @@ WORKDIR /opt/pyda
 
 ARG PYDA_GEF=0
 RUN bash -c 'if [[ "$PYDA_GEF" = "1" ]]; then \
-    apt install -y file; \
+    apt update && apt install -y file; \
     PYTHONPATH= PYTHONHOME= bash -c "$(wget https://raw.githubusercontent.com/hugsy/gef/main/scripts/gef.sh -O -)"; \
     fi'
 
