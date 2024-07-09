@@ -165,11 +165,28 @@ p.syscall_post(1, lambda p, syscall_num: print(f"write called with {p.regs.rdx} 
 
 ### FAQ
 
-**Why should I use this over { GDB, Frida, Pwndbg }?** 
+**Why should I use this over GDB or other ptrace-based debuggers?** 
 
-If you like
-scripting in these tools and are happy with their performance, then
-you probably don't need this tool.
+GDB breakpoints incur substantial overhead due to signal handling in the kernel and in
+the tracer process.  This introduces an insurmountable
+performance challenge for high-frequency breakpoints.
+For multithreaded programs, this problem is compounded by
+["group-stop"](https://man7.org/linux/man-pages/man2/ptrace.2.html), which will
+stop *all* threads when *any* thread receives a stop signal.
+
+Unlike GDB, Pyda hooks are executed directly in the target process itself (without the overhead of signals
+or a kernel context switch). As a result, Pyda hooks typically run faster.
+
+**Why should I use this over Frida or other dynamic instrumentation tools?**
+
+These tools are quite similar to Pyda, with mostly ergonomic differences: Pyda tools
+are written in Python using a relatively minimal set of [APIs](#api). Pyda relies on the existing Python ecosystem for many features (e.g. ELF parsing).
+As a result, Pyda tools are typically shorter and easier to write than equivalent Frida scripts.
+
+However, Pyda is **not** (currently) an adequate replacement for full-fledged dynamic instrumentation
+frameworks. We do not provide a fine-grained instrumentation API (e.g.
+you cannot insert specific instructions), relying instead on hooks
+as the primary unit of instrumentation.
 
 **Can I use `LD_LIBRARY_PATH` on the target?**
 
