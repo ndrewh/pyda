@@ -20,6 +20,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+CPython available under the PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2,
+duplicated below. Dynamorio is available primarily under the BSD
+license, duplicated below.
+
 ===========================================================================
 
 PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2
