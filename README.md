@@ -100,13 +100,12 @@ Suggested use is via Docker.
 
 Pull the latest release:
 ```sh
-docker pull ghcr.io/ndrewh/pyda pyda
+docker pull ghcr.io/ndrewh/pyda
 ```
 
 Or build it yourself:
 ```sh
 docker build -t pyda .
-docker run -it pyda
 ```
 
 (The Pyda image is currently based on `ubuntu:22.04` and we leave the default entrypoint as `/bin/bash`)
