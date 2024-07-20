@@ -14,6 +14,13 @@ pyda_process* pyda_mk_process() {
 #else
 #include "dr_api.h"
 
+static void free_hook(void *data) {
+    pyda_hook *hook = (pyda_hook*)data;
+    Py_DECREF(hook->py_func);
+    hook->py_func = NULL;
+    dr_global_free(hook, sizeof(pyda_hook));
+}
+
 pyda_process* pyda_mk_process() {
     ABORT_IF_NODYNAMORIO;
 
@@ -21,7 +28,8 @@ pyda_process* pyda_mk_process() {
     proc->refcount = 0; // xxx: will be incremented to 1 by first pyda_mk_thread
     proc->dirty_hooks = 0;
     proc->main_thread = pyda_mk_thread(proc);
-    proc->callbacks = NULL;
+    hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, free_hook, NULL, NULL);
+
     proc->thread_init_hook = NULL;
     proc->syscall_pre_hook = NULL;
     proc->syscall_post_hook = NULL;
@@ -121,16 +129,7 @@ void pyda_process_destroy(pyda_process *p) {
     
     p->syscall_post_hook = NULL;
 
-    pyda_hook *cb = p->callbacks;
-    while (cb) {
-        Py_DECREF(cb->py_func);
-        cb->py_func = NULL;
-
-        void *del = cb;
-        cb = cb->next;
-
-        dr_global_free(del, sizeof(pyda_hook));
-    }
+    hashtable_delete(&p->callbacks);
     dr_global_free(p, sizeof(pyda_process));
 
     PyGILState_Release(gstate);
@@ -237,7 +236,6 @@ void pyda_add_hook(pyda_process *t, uint64_t addr, PyObject *callback) {
     DEBUG_PRINTF("pyda_add_hook %p %p\n", cb, cb->py_func);
 
     cb->callback_type = 0;
-    cb->next = t->callbacks;
     cb->addr = (void*)addr;
 
 
@@ -245,20 +243,17 @@ void pyda_add_hook(pyda_process *t, uint64_t addr, PyObject *callback) {
     // dr_where_am_i_t whereami = dr_where_am_i(drcontext, (void*)addr, NULL);
     // DEBUG_PRINTF("Hook is in %lu\n", whereami);
 
-    t->callbacks = cb;
+    if (!hashtable_add(&t->callbacks, (void*)addr, cb)) {
+        dr_global_free(cb, sizeof(pyda_hook));
+        dr_fprintf(STDERR, "Failed to add hook at %p\n", (void*)addr);
+        dr_abort();
+    }
+
     t->dirty_hooks = 1;
 }
 
 void pyda_remove_hook(pyda_process *p, uint64_t addr) {
-    pyda_hook **cb = &p->callbacks;
-    while (*cb) {
-        if ((*cb)->callback_type == 0 && (*cb)->addr == (void*)addr) {
-            *cb = (*cb)->next;
-            break;
-        }
-        cb = &(*cb)->next;
-    }
-
+    hashtable_remove(&p->callbacks, (void*)addr);
     p->dirty_hooks = 1;
 }
 
@@ -292,30 +287,32 @@ void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback) {
     Py_INCREF(callback);
 }
 
+static void flush_hook(void *hook) {
+    pyda_hook *cb = (pyda_hook*)hook;
+    if (cb->callback_type == 0) {
+        DEBUG_PRINTF("dr_flush_region: %llx\n", (void*)cb->addr);
+        dr_flush_region((void*)cb->addr, 1);
+        DEBUG_PRINTF("dr_flush_region end\n");
+    }
+
+}
+
 int pyda_flush_hooks() {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     pyda_process *p = t->proc;
     if (!p->dirty_hooks) return 0;
 
-    pyda_hook *cb = p->callbacks;
-    while (cb) {
-        if (cb->callback_type == 0) {
-            DEBUG_PRINTF("dr_flush_region: %llx\n", (void*)cb->addr);
-            dr_flush_region((void*)cb->addr, 1);
-            DEBUG_PRINTF("dr_flush_region end\n");
-        }
-        cb = cb->next;
-    }
+    hashtable_apply_to_all_payloads(&p->callbacks, flush_hook);
     p->dirty_hooks = 0;
     return 1;
 }
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr) {
-    pyda_hook *cb = p->callbacks;
-    while (cb) {
-        if (cb->callback_type == 0 && cb->addr == addr)
-            return cb;
-        cb = cb->next;
+    pyda_hook *cb = (void*)hashtable_lookup(&p->callbacks, addr);
+
+    if (cb && cb->callback_type == 0) {
+        return cb;
     }
+
     return NULL;
 }
 

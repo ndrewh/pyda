@@ -11,6 +11,7 @@
 
 #ifdef PYDA_DYNAMORIO_CLIENT
 #include <dr_api.h>
+#include "hashtable.h"
 #endif
 
 extern int is_dynamorio_running;
@@ -25,12 +26,12 @@ struct pyda_hook_s {
     PyObject *py_func;
     int callback_type;
     void *addr;
-
-    pyda_hook *next;
 };
 
 struct pyda_process_s {
-    pyda_hook *callbacks;
+#ifdef PYDA_DYNAMORIO_CLIENT
+    hashtable_t callbacks;
+#endif
     int dirty_hooks;
     int refcount;
 

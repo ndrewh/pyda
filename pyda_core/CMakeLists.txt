@@ -19,6 +19,7 @@ target_compile_options(tool PUBLIC -DPYDA_DYNAMORIO_CLIENT -Werror)
 
 configure_DynamoRIO_client(tool)
 use_DynamoRIO_extension(tool drmgr)
+use_DynamoRIO_extension(tool drcontainers)
 #use_DynamoRIO_extension(tool drtools)
 
 # the standalone python shared library (no dynamorio linked here)
