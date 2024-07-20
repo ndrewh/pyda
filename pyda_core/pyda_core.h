@@ -45,6 +45,8 @@ struct pyda_process_s {
     pthread_cond_t thread_exit_cond;
     pthread_mutex_t refcount_mutex;
 
+    int stdin_fd, stdout_fd, stderr_fd;
+
     void* entrypoint;
 };
 
@@ -56,16 +58,18 @@ struct pyda_thread_s {
     pthread_mutex_t mutex;
 
     int python_yielded, app_yielded;
+    int python_blocked_on_io;
 
     pyda_process *proc;
     // PyObject *py_obj;
 
     int rip_updated_in_cleancall;
     int skip_next_hook;
-    int python_exited;
-    int yield_count;
 
+    int python_exited;
     int errored;
+
+    int yield_count;
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;

@@ -24,6 +24,9 @@ static PyObject *pyda_get_current_thread_id(PyObject *self, PyObject *noarg);
 
 static void PydaProcess_dealloc(PydaProcess *self);
 static PyObject *PydaProcess_run(PyObject *self, PyObject *noarg);
+static PyObject *PydaProcess_run_until_io(PyObject *self, PyObject *noarg);
+static PyObject *PydaProcess_run_until_pc(PyObject *self, PyObject *arg);
+static PyObject *PydaProcess_get_io_fds(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_register_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_unregister_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_thread_init_hook(PyObject *self, PyObject *args);
@@ -144,6 +147,9 @@ PyInit_pyda_core(void) {
 
 static PyMethodDef PydaProcessMethods[] = {
     {"run",  PydaProcess_run, METH_NOARGS, "Run"},
+    {"run_until_pc",  PydaProcess_run_until_pc, METH_VARARGS, "Run until PC is reached"},
+    {"run_until_io",  PydaProcess_run_until_io, METH_NOARGS, "Run until IO syscall"},
+    {"get_io_fds", PydaProcess_get_io_fds, METH_NOARGS, "Get IO fds"},
     {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
     {"unregister_hook",  PydaProcess_unregister_hook, METH_VARARGS, "Un-register a hook"},
     {"set_thread_init_hook",  PydaProcess_set_thread_init_hook, METH_VARARGS, "Register thread init hook"},
@@ -210,9 +216,66 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
 
 static PyObject *
 PydaProcess_run(PyObject* self, PyObject *noarg) {
-    PydaProcess *p = (PydaProcess*)self;
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+
     Py_BEGIN_ALLOW_THREADS
-    pyda_yield(p->main_thread);
+    pyda_yield(t);
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("yield returned\n");
+#endif // PYDA_DYNAMORIO_CLIENT
+    Py_END_ALLOW_THREADS
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    t->python_blocked_on_io = 1;
+
+    // todo: assert that this thread is like, actually blocked
+
+    Py_BEGIN_ALLOW_THREADS
+    pyda_yield(t);
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("yield after io returned\n");
+#endif // PYDA_DYNAMORIO_CLIENT
+    Py_END_ALLOW_THREADS
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_get_io_fds(PyObject* self, PyObject *noarg) {
+    PydaProcess *p = (PydaProcess*)self;
+    pyda_process *proc = p->main_thread->proc;
+
+    PyObject *list = PyList_New(0);
+    PyList_Append(list, PyLong_FromLong(proc->stdin_fd));
+    PyList_Append(list, PyLong_FromLong(proc->stdout_fd));
+    PyList_Append(list, PyLong_FromLong(proc->stderr_fd));
+
+    return list;
+}
+
+static PyObject *
+PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
+    PyErr_SetString(PyExc_RuntimeError, "Not implemented");
+    return NULL;
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    t->python_blocked_on_io = 1;
+
+    unsigned long addr;
+
+    if (!PyArg_ParseTuple(args, "K", &addr))
+        return NULL;
+
+    Py_BEGIN_ALLOW_THREADS
+    // t->python_blocked_until = addr;
+    pyda_yield(t);
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("yield returned\n");
 #endif // PYDA_DYNAMORIO_CLIENT

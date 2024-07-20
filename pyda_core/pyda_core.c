@@ -101,6 +101,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->skip_next_hook = 0;
     thread->python_exited = 0;
     thread->errored = 0;
+    thread->python_blocked_on_io = 0;
 
     // PyErr_SetString(PyExc_RuntimeError, "OK");
     return thread;
@@ -405,6 +406,11 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     PyGILState_STATE gstate;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (t->errored) return 1;
+
+    if (syscall_num == 1 && t->python_blocked_on_io) { // write
+        t->python_blocked_on_io = 0;
+        pyda_break(t);
+    }
 
     PyObject *hook = (is_pre ? t->proc->syscall_pre_hook : t->proc->syscall_post_hook);
     if (!hook) return 1;
