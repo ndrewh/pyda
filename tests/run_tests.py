@@ -23,7 +23,7 @@ def output_checker(stdout: bytes, stderr: bytes) -> bool:
     return True
 
 def no_warnings_or_errors(stdout: bytes, stderr: bytes) -> bool:
-    return b"[Pyda]" not in stderr
+    return b"[Pyda]" not in stderr and b"WARNING:" not in stderr
 
 TESTS = [
     # tests whether we can handle a large number of threads with concurrent hooks
@@ -96,18 +96,29 @@ TESTS = [
             output_checker,
             lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
         ]
+    )),
+
+    # test register read/write
+    ("test_regs_x86", "simple.c", "test_regs_x86.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"success") == 1,
+        ]
     ))
 ]
 
 def main():
     ap = ArgumentParser()
     ap.add_argument("--test", help="Run a specific test", default=None)
+    ap.add_argument("--debug", help="Enable debug output", action="store_true")
     args = ap.parse_args()
 
     if args.test is None:
         res = True
         for (name, c_file, python_file, expected_result) in TESTS:
-            res &= run_test(c_file, python_file, expected_result, name)
+            res &= run_test(c_file, python_file, expected_result, name, args.debug)
     else:
         test = next((t for t in TESTS if t[0] == args.test), None)
         if test is None:
@@ -115,12 +126,12 @@ def main():
             exit(1)
         
         name, c_file, python_file, expected_result = test
-        res = run_test(c_file, python_file, expected_result, name)
+        res = run_test(c_file, python_file, expected_result, name, args.debug)
 
     if not res:
         exit(1)
 
-def run_test(c_file, python_file, expected_result, test_name):
+def run_test(c_file, python_file, expected_result, test_name, debug):
     # Compile to temporary directory
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -149,13 +160,23 @@ def run_test(c_file, python_file, expected_result, test_name):
                     result_str += f"  Expected return code {expected_result.retcode}, got {result.returncode}\n"
 
             for (i, checker) in enumerate(expected_result.checkers):
-                if not checker(result.stdout, result.stderr):
+                checker_res = False
+                try:
+                    checker_res = checker(result.stdout, result.stderr)
+                except:
+                    pass
+                
+                if not checker_res:
                     result_str += f"  Checker {i} failed\n"
 
 
         if len(result_str) > 0:
             print(f"[FAIL] {test_name} ({python_file} {c_file})")
             print(result_str)
+            if debug:
+                print(result.stdout.decode())
+                print(result.stderr.decode())
+
             return False
         else:
             print(f"[OK] {test_name} ({python_file} {c_file})")

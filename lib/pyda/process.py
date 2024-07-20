@@ -134,14 +134,22 @@ class ProcessRegisters():
         self._p = p
 
     def __getitem__(self, name):
-        val = self._p.get_register(name.lower())
+        val = None
+        reg_id = getattr(pyda_core, "REG_"+name.upper(), None)
+        if reg_id:
+            val = self._p.get_register(reg_id)
+
         if val is not None:
             return val
         
         raise AttributeError(f"Invalid register name '{name}'")
     
     def __setitem__(self, name, value):
-        self._p.set_register(name.lower(), value)
+        reg_id = getattr(pyda_core, "REG_"+name.upper(), None)
+        if reg_id:
+            self._p.set_register(reg_id, value)
+        else:
+            raise AttributeError(f"Invalid register name '{name}'")
 
     def __getattr__(self, name):
         return self[name]

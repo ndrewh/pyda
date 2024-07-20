@@ -1,3 +1,4 @@
+#include "pyda_core_py.h"
 #include "pyda_core.h"
 #include "pyda_threads.h"
 #include "util.h"
@@ -71,6 +72,70 @@ PyInit_pyda_core(void) {
         Py_DECREF(m);
         return NULL;
     }
+
+#ifdef X86
+    PyModule_AddIntConstant(m, "REG_RAX", DR_REG_RAX);
+    PyModule_AddIntConstant(m, "REG_RBX", DR_REG_RBX);
+    PyModule_AddIntConstant(m, "REG_RCX", DR_REG_RCX);
+    PyModule_AddIntConstant(m, "REG_RDX", DR_REG_RDX);
+    PyModule_AddIntConstant(m, "REG_RSI", DR_REG_RSI);
+    PyModule_AddIntConstant(m, "REG_RDI", DR_REG_RDI);
+    PyModule_AddIntConstant(m, "REG_RBP", DR_REG_RBP);
+    PyModule_AddIntConstant(m, "REG_RSP", DR_REG_RSP);
+    PyModule_AddIntConstant(m, "REG_R8", DR_REG_R8);
+    PyModule_AddIntConstant(m, "REG_R9", DR_REG_R9);
+    PyModule_AddIntConstant(m, "REG_R10", DR_REG_R10);
+    PyModule_AddIntConstant(m, "REG_R11", DR_REG_R11);
+    PyModule_AddIntConstant(m, "REG_R12", DR_REG_R12);
+    PyModule_AddIntConstant(m, "REG_R13", DR_REG_R13);
+    PyModule_AddIntConstant(m, "REG_R14", DR_REG_R14);
+    PyModule_AddIntConstant(m, "REG_R15", DR_REG_R15);
+    PyModule_AddIntConstant(m, "REG_RIP", PYDA_REG_PC);
+    PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC);
+    PyModule_AddIntConstant(m, "REG_FSBASE", PYDA_REG_FSBASE);
+    PyModule_AddIntConstant(m, "REG_XMM0", DR_REG_XMM0);
+    PyModule_AddIntConstant(m, "REG_XMM1", DR_REG_XMM1);
+    PyModule_AddIntConstant(m, "REG_XMM2", DR_REG_XMM2);
+    PyModule_AddIntConstant(m, "REG_XMM3", DR_REG_XMM3);
+    PyModule_AddIntConstant(m, "REG_XMM4", DR_REG_XMM4);
+    PyModule_AddIntConstant(m, "REG_XMM5", DR_REG_XMM5);
+    PyModule_AddIntConstant(m, "REG_XMM6", DR_REG_XMM6);
+    PyModule_AddIntConstant(m, "REG_XMM7", DR_REG_XMM7);
+#elif ARM64
+    PyModule_AddIntConstant(m, "REG_X0", DR_REG_X0);
+    PyModule_AddIntConstant(m, "REG_X1", DR_REG_X1);
+    PyModule_AddIntConstant(m, "REG_X2", DR_REG_X2);
+    PyModule_AddIntConstant(m, "REG_X3", DR_REG_X3);
+    PyModule_AddIntConstant(m, "REG_X4", DR_REG_X4);
+    PyModule_AddIntConstant(m, "REG_X5", DR_REG_X5);
+    PyModule_AddIntConstant(m, "REG_X6", DR_REG_X6);
+    PyModule_AddIntConstant(m, "REG_X7", DR_REG_X7);
+    PyModule_AddIntConstant(m, "REG_X8", DR_REG_X8);
+    PyModule_AddIntConstant(m, "REG_X9", DR_REG_X9);
+    PyModule_AddIntConstant(m, "REG_X10", DR_REG_X10);
+    PyModule_AddIntConstant(m, "REG_X11", DR_REG_X11);
+    PyModule_AddIntConstant(m, "REG_X12", DR_REG_X12);
+    PyModule_AddIntConstant(m, "REG_X13", DR_REG_X13);
+    PyModule_AddIntConstant(m, "REG_X14", DR_REG_X14);
+    PyModule_AddIntConstant(m, "REG_X15", DR_REG_X15);
+    PyModule_AddIntConstant(m, "REG_X16", DR_REG_X16);
+    PyModule_AddIntConstant(m, "REG_X17", DR_REG_X17);
+    PyModule_AddIntConstant(m, "REG_X18", DR_REG_X18);
+    PyModule_AddIntConstant(m, "REG_X19", DR_REG_X19);
+    PyModule_AddIntConstant(m, "REG_X20", DR_REG_X20);
+    PyModule_AddIntConstant(m, "REG_X21", DR_REG_X21);
+    PyModule_AddIntConstant(m, "REG_X22", DR_REG_X22);
+    PyModule_AddIntConstant(m, "REG_X23", DR_REG_X23);
+    PyModule_AddIntConstant(m, "REG_X24", DR_REG_X24);
+    PyModule_AddIntConstant(m, "REG_X25", DR_REG_X25);
+    PyModule_AddIntConstant(m, "REG_X26", DR_REG_X26);
+    PyModule_AddIntConstant(m, "REG_X27", DR_REG_X27);
+    PyModule_AddIntConstant(m, "REG_X28", DR_REG_X28);
+    PyModule_AddIntConstant(m, "REG_X29", DR_REG_X29);
+    PyModule_AddIntConstant(m, "REG_X30", DR_REG_X30);
+    PyModule_AddIntConstant(m, "REG_SP", DR_REG_SP);
+    PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC);
+#endif
 
     return m;
 }
@@ -196,9 +261,9 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
 
-    const char *regname;
+    unsigned long long reg_id;
 
-    if (!PyArg_ParseTuple(args, "s", &regname))
+    if (!PyArg_ParseTuple(args, "K", &reg_id))
         return NULL;
 
 #ifdef PYDA_DYNAMORIO_CLIENT
@@ -207,59 +272,42 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
 
     // TODO: Fix... copilot wrote this. Surely we can write
     // a macro...
-    if (strcmp(regname, "rax") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rax);
-    } else if (strcmp(regname, "rbx") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rbx);
-    } else if (strcmp(regname, "rcx") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rcx);
-    } else if (strcmp(regname, "rsp") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rsp);
-    } else if (strcmp(regname, "rbp") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rbp);
-    } else if (strcmp(regname, "rdi") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rdi);
-    } else if (strcmp(regname, "rsi") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rsi);
-    } else if (strcmp(regname, "r8") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r8);
-    } else if (strcmp(regname, "r9") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r9);
-    } else if (strcmp(regname, "r10") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r10);
-    } else if (strcmp(regname, "r11") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r11);
-    } else if (strcmp(regname, "r12") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r12);
-    } else if (strcmp(regname, "r13") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r13);
-    } else if (strcmp(regname, "r14") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r14);
-    } else if (strcmp(regname, "r15") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->r15);
-    } else if (strcmp(regname, "rdx") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)mc->rdx);
-    } else if (strcmp(regname, "fsbase") == 0) {
-        return PyLong_FromUnsignedLong((unsigned long)dr_get_tls_field(dr_get_current_drcontext()));
-    } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
+
+    if (reg_id == PYDA_REG_PC) {
         return PyLong_FromUnsignedLong((unsigned long)mc->pc);
-    } else if (strcmp(regname, "xmm0") == 0) {
-        uint64_t val[2];
-        reg_get_value_ex(DR_REG_XMM0, mc, (uint8_t*)&val);
-        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
-    } else if (strcmp(regname, "xmm1") == 0) {
-        uint64_t val[2];
-        reg_get_value_ex(DR_REG_XMM1, mc, (uint8_t*)&val);
-        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
-    } else if (strcmp(regname, "xmm2") == 0) {
-        uint64_t val[2];
-        reg_get_value_ex(DR_REG_XMM2, mc, (uint8_t*)&val);
-        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
-    } else if (strcmp(regname, "xmm3") == 0) {
-        uint64_t val[2];
-        reg_get_value_ex(DR_REG_XMM3, mc, (uint8_t*)&val);
-        return PyLong_FromUnsignedLong(val[0]); // todo: we lose the top
+    } else if (reg_id == PYDA_REG_FSBASE) {
+        return PyLong_FromUnsignedLong((unsigned long)dr_get_tls_field(dr_get_current_drcontext()));
     }
+
+    opnd_size_t sz = reg_get_size(reg_id);
+    if (!(sz == OPSZ_4 || sz == OPSZ_8 || sz == OPSZ_16 || sz == OPSZ_32)) {
+        PyErr_SetString(PyExc_RuntimeError, "Unsupported register size");
+        return NULL;
+    }
+
+    uint64_t val[4] = {0};
+    reg_get_value_ex(reg_id, mc, (uint8_t*)&val);
+
+    if (sz == OPSZ_8) {
+        // fast path
+        return PyLong_FromUnsignedLong(val[0]);
+    }
+
+    // Convert to decimal string
+    char buf[64];
+    if (snprintf(buf, sizeof(buf), "0x%lx%lx", val[1], val[0]) >= sizeof(buf)) {
+        PyErr_SetString(PyExc_RuntimeError, "Internal error: reg buffer too small");
+        return NULL;
+    }
+
+    PyObject *ret = PyLong_FromString(buf, NULL, 16);
+    if (!ret) {
+        PyErr_SetString(PyExc_RuntimeError, "Internal error: failed to convert string to long");
+        return NULL;
+    }
+
+    return ret;
+
 #endif // PYDA_DYNAMORIO_CLIENT
 
     Py_INCREF(Py_None);
@@ -271,56 +319,37 @@ PydaProcess_set_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
 
-    const char *regname;
-    unsigned long long val;
+    unsigned long long reg_id;
+    PyObject *val;
 
-    if (!PyArg_ParseTuple(args, "sK", &regname, &val))
+    if (!PyArg_ParseTuple(args, "KO", &reg_id, &val))
         return NULL;
 
+    if (!PyLong_Check(val)) {
+        PyErr_SetString(PyExc_RuntimeError, "Value must be an integer");
+        return NULL;
+    }
 
 #ifdef PYDA_DYNAMORIO_CLIENT
-    DEBUG_PRINTF("set_register: %s %llx\n", regname, val);
     // DEBUG_PRINTF("get_register: %s\n", regname);
     dr_mcontext_t *mc = &t->cur_context;
 
-    // TODO: Fix... copilot wrote this. Surely we can write
-    // a macro...
-    if (strcmp(regname, "rax") == 0) {
-        mc->rax = val;
-    } else if (strcmp(regname, "rbx") == 0) {
-        mc->rbx = val;
-    } else if (strcmp(regname, "rcx") == 0) {
-        mc->rcx = val;
-    } else if (strcmp(regname, "rsp") == 0) {
-        mc->rsp = val;
-    } else if (strcmp(regname, "rbp") == 0) {
-        mc->rbp = val;
-    } else if (strcmp(regname, "rdi") == 0) {
-        mc->rdi = val;
-    } else if (strcmp(regname, "rsi") == 0) {
-        mc->rsi = val;
-    } else if (strcmp(regname, "r8") == 0) {
-        mc->r8 = val;
-    } else if (strcmp(regname, "r9") == 0) {
-        mc->r9 = val;
-    } else if (strcmp(regname, "r10") == 0) {
-        mc->r10 = val;
-    } else if (strcmp(regname, "r11") == 0) {
-        mc->r11 = val;
-    } else if (strcmp(regname, "r12") == 0) {
-        mc->r12 = val;
-    } else if (strcmp(regname, "r13") == 0) {
-        mc->r13 = val;
-    } else if (strcmp(regname, "r14") == 0) {
-        mc->r14 = val;
-    } else if (strcmp(regname, "r15") == 0) {
-        mc->r15 = val;
-    } else if (strcmp(regname, "rdx") == 0) {
-        mc->rdx = val;
-    } else if (strcmp(regname, "rip") == 0 || strcmp(regname, "pc") == 0) {
-        mc->pc = (void*)val;
+    uint64_t raw[4] = {0};
+    _PyLong_AsByteArray((PyLongObject *)val, (unsigned char*)&raw, sizeof(raw), 1, 0);
+
+    DEBUG_PRINTF("set_register: %llx %llx\n", reg_id, raw[0]);
+
+    if (reg_id == PYDA_REG_PC) {
+        mc->pc = (void*)raw[0];
         t->rip_updated_in_cleancall = 1;
+    } else {
+        if (!reg_set_value_ex(reg_id, mc, (uint8_t*)&raw)) {
+            PyErr_SetString(PyExc_RuntimeError, "Failed to set register");
+            return NULL;
+        }
     }
+
+
 #endif // PYDA_DYNAMORIO_CLIENT
 
     Py_INCREF(Py_None);

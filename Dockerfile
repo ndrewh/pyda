@@ -43,7 +43,8 @@ RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.gi
       mkdir /opt/dynamorio-install/ && \
       mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ ..' && \
       make -j && make install && \
-      rm -rf /opt/dynamorio/
+      rm -rf /opt/dynamorio/ && \
+      touch /opt/dynamorio-install/CMakeCache.txt
 
 ENV DYNAMORIO_HOME=/opt/dynamorio-install/
 ENV PYTHONHOME=/opt/custom-python-root/
