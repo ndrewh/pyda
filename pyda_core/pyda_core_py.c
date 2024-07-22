@@ -26,7 +26,8 @@ static void PydaProcess_dealloc(PydaProcess *self);
 static PyObject *PydaProcess_run(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_run_until_io(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_run_until_pc(PyObject *self, PyObject *arg);
-static PyObject *PydaProcess_get_io_fds(PyObject *self, PyObject *noarg);
+static PyObject *PydaProcess_exited(PyObject *self, PyObject *noarg);
+static PyObject *PydaProcess_capture_io(PyObject *self, PyObject *noarg);
 static PyObject *PydaProcess_register_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_unregister_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_thread_init_hook(PyObject *self, PyObject *args);
@@ -149,7 +150,7 @@ static PyMethodDef PydaProcessMethods[] = {
     {"run",  PydaProcess_run, METH_NOARGS, "Run"},
     {"run_until_pc",  PydaProcess_run_until_pc, METH_VARARGS, "Run until PC is reached"},
     {"run_until_io",  PydaProcess_run_until_io, METH_NOARGS, "Run until IO syscall"},
-    {"get_io_fds", PydaProcess_get_io_fds, METH_NOARGS, "Get IO fds"},
+    {"capture_io", PydaProcess_capture_io, METH_NOARGS, "Capture IO -- returns IO fds"},
     {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
     {"unregister_hook",  PydaProcess_unregister_hook, METH_VARARGS, "Un-register a hook"},
     {"set_thread_init_hook",  PydaProcess_set_thread_init_hook, METH_VARARGS, "Register thread init hook"},
@@ -158,6 +159,7 @@ static PyMethodDef PydaProcessMethods[] = {
     {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
     {"read",  PydaProcess_read, METH_VARARGS, "Read memory"},
     {"write",  PydaProcess_write, METH_VARARGS, "Write memory"},
+    {"exited",  PydaProcess_exited, METH_NOARGS, "Check if thread has exited"},
     // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
     {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
     {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
@@ -214,9 +216,18 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     return (PyObject*)result;
 }
 
+static int check_exited(pyda_thread *t) {
+    if (t->app_exited) {
+        PyErr_SetString(PyExc_RuntimeError, "Thread has already exited; cannot be resumed");
+        return 1;
+    }
+    return 0;
+}
+
 static PyObject *
 PydaProcess_run(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
 
     Py_BEGIN_ALLOW_THREADS
     pyda_yield(t);
@@ -232,7 +243,10 @@ PydaProcess_run(PyObject* self, PyObject *noarg) {
 static PyObject *
 PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
+
     t->python_blocked_on_io = 1;
+
 
     // todo: assert that this thread is like, actually blocked
 
@@ -248,9 +262,14 @@ PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
 }
 
 static PyObject *
-PydaProcess_get_io_fds(PyObject* self, PyObject *noarg) {
+PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_process *proc = p->main_thread->proc;
+
+    if (proc->stdin_fd == -1) {
+        PyErr_SetString(PyExc_RuntimeError, "IO is not captured");
+        return NULL;
+    }
 
     PyObject *list = PyList_New(0);
     PyList_Append(list, PyLong_FromLong(proc->stdin_fd));
@@ -266,6 +285,7 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
     return NULL;
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
     t->python_blocked_on_io = 1;
 
     unsigned long addr;
@@ -283,6 +303,17 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
 
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+static PyObject *
+PydaProcess_exited(PyObject* self, PyObject *noarg) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (t->app_exited) {
+        Py_INCREF(Py_True);
+        return Py_True;
+    }
+    Py_INCREF(Py_False);
+    return Py_False;
 }
 
 static PyObject *

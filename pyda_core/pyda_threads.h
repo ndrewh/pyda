@@ -13,3 +13,4 @@ int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);
 
 void* pyda_dlopen(const char *filename, int flag);
 void* pyda_dlsym(void *handle, const char *symbol);
+void* pyda_thread_self();

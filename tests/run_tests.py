@@ -106,6 +106,17 @@ TESTS = [
             no_warnings_or_errors,
             lambda o, e: o.count(b"success") == 1,
         ]
+    )),
+
+    # test "blocking" I/O
+    ("test_io", "test_io.c", "test_io.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"hello") == 0,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
     ))
 ]
 

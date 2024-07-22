@@ -2,6 +2,8 @@
 #include "pyda_core.h"
 #include "pyda_threads.h"
 #include "util.h"
+#include <fcntl.h>
+
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 
@@ -35,6 +37,7 @@ pyda_process* pyda_mk_process() {
     proc->syscall_post_hook = NULL;
     proc->py_obj = NULL;
 
+    // Setup locks, etc.
     pthread_condattr_t condattr;
     int ret;
     if (ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED)) {
@@ -54,7 +57,48 @@ pyda_process* pyda_mk_process() {
         dr_fprintf(STDERR, "pthread_mutex_init failed %d\n", ret);
         dr_abort();
     }
+
+    // Setup I/O
+    proc->stdin_fd = -1;
+    proc->stdout_fd = -1;
+    proc->stderr_fd = -1;
+
+    // TODO: also need to modify dynamorio printing functions
+    // as they use raw fd 0/1/2
     return proc;
+}
+
+extern file_t our_stderr;
+void pyda_capture_io(pyda_process *proc) {
+    int orig_in = dup(0);
+    int orig_out = dup(1);
+    int orig_err = dup(2);
+
+    int pipe1[2], pipe2[2], pipe3[2];
+    if (pipe(pipe1) || pipe(pipe2) || pipe(pipe3)) {
+        dr_fprintf(STDERR, "Failed to create pipes\n");
+        dr_abort();
+    }
+
+    dup2(pipe1[0], 0);
+    dup2(pipe2[1], 1);
+    dup2(pipe3[1], 2);
+
+    stdin = fdopen(orig_in, "r");
+    stdout = fdopen(orig_out, "w");
+    stderr = fdopen(orig_err, "w");
+
+    proc->stdin_fd = pipe1[1];
+    proc->stdout_fd = pipe2[0];
+    proc->stderr_fd = pipe3[0];
+
+    our_stderr = orig_err;
+
+    // nonblocking
+    if (fcntl(proc->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stderr_fd, F_SETFL, O_NONBLOCK)) {
+        dr_fprintf(STDERR, "Failed to set stdout to nonblocking\n");
+        dr_abort();
+    }
 }
 
 pyda_thread* pyda_mk_thread(pyda_process *proc) {
@@ -100,6 +144,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->rip_updated_in_cleancall = 0;
     thread->skip_next_hook = 0;
     thread->python_exited = 0;
+    thread->app_exited = 0;
     thread->errored = 0;
     thread->python_blocked_on_io = 0;
 

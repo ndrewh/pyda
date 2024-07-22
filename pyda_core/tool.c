@@ -93,6 +93,10 @@ void thread_init_event(void *drcontext) {
     pyda_thread *t;
     if (!global_proc) {
         global_proc = pyda_mk_process();
+        
+        if (!getenv("PYDA_NO_CAPTURE") || getenv("PYDA_NO_CAPTURE")[0] != '1')
+            pyda_capture_io(global_proc);
+
         t = global_proc->main_thread;
     } else {
         t = pyda_mk_thread(global_proc);
@@ -138,6 +142,7 @@ void thread_exit_event(void *drcontext) {
     pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
 
     DEBUG_PRINTF("thread_exit_event: %p thread id %d\n", t, dr_get_thread_id(drcontext));
+    t->app_exited = 1;
 
     if (t->proc->main_thread == t) {
         pyda_break_noblock(t);
@@ -308,6 +313,11 @@ void python_main_thread(void *arg) {
         goto python_exit;
     }
 
+    // The thread will be holding the lock until
+    // it reaches the "initial" breakpoint
+    pthread_mutex_lock(&t->mutex);
+    pthread_mutex_unlock(&t->mutex);
+
     if (PyRun_SimpleFile(f, script_name) == -1) {
         // python exception
     }
@@ -323,7 +333,7 @@ python_exit:
     DEBUG_PRINTF("After script exit, GIL status %d\n", PyGILState_Check());
     PyEval_SaveThread(); // release GIL
 
-    if (t->yield_count == 0) {
+    if (!t->app_exited) {
         dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
         pyda_yield(t); // unblock (note: blocking)
         DEBUG_PRINTF("Implicit pyda_yield finished\n");

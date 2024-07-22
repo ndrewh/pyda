@@ -103,3 +103,13 @@ int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
 
     return res;
 }
+
+int pyda_thread_self() {
+    // XXX: We *could* try to return our pyda-specific tid -- but there
+    // are technically two threads with that tid!! (Python and App).
+    // If we returned the same ID for two python threads,
+    // it seems likely it would break things.
+    //
+    // Instead, we are just going to return the dynamorio thread id
+    return dr_get_thread_id(dr_get_current_drcontext());
+}

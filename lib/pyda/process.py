@@ -1,26 +1,21 @@
 from collections import namedtuple
 from dataclasses import dataclass
+from .tube import ProcessTube
 import pyda_core
 
-class Process():
+class Process(ProcessTube):
     def __init__(self, handle, prevent_close_stdio=True):
         self._p = handle
+
+        fds = self._p.capture_io()
+        super().__init__(fds[0], fds[1])
+
         self._hooks = {}
         self._syscall_pre_hooks = {}
         self._syscall_post_hooks = {}
         self._registered_syscall_pre_hook = False
         self._registered_syscall_post_hook = False
         self._has_run = False
-
-        def prevent_close(p, num):
-            if p.regs.rdi in [0, 1, 2]:
-                p.regs.rax = 0
-                return False # pre-hooks that return False will prevent the syscall from executing
-            
-            return None
-
-        if prevent_close_stdio:
-            self.syscall_pre(3, prevent_close)
     
     def _hook_dispatch(self, addr):
         for h in self._hooks[addr]:

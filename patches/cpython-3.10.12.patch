@@ -11,6 +11,22 @@ index 8d2221cfd8..1372cbc291 100644
  #endif
  
  #if defined(FAULTHANDLER_USE_ALT_STACK) && defined(HAVE_LINUX_AUXVEC_H) && defined(HAVE_SYS_AUXV_H)
+diff --git a/Python/errors.c b/Python/errors.c
+index bc1b55e440..78e704e332 100644
+--- a/Python/errors.c
++++ b/Python/errors.c
+@@ -698,10 +698,10 @@ PyErr_SetFromErrnoWithFilenameObject(PyObject *exc, PyObject *filenameObject)
+ PyObject *
+ PyErr_SetFromErrnoWithFilenameObjects(PyObject *exc, PyObject *filenameObject, PyObject *filenameObject2)
+ {
++    int i = errno;
+     PyThreadState *tstate = _PyThreadState_GET();
+     PyObject *message;
+     PyObject *v, *args;
+-    int i = errno;
+ #ifdef MS_WINDOWS
+     WCHAR *s_buf = NULL;
+ #endif /* Unix/Windows */
 diff --git a/Python/thread_pthread.h b/Python/thread_pthread.h
 index 35b9810aa3..130528aec3 100644
 --- a/Python/thread_pthread.h
