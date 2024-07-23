@@ -3,6 +3,8 @@
 #include "pyda_threads.h"
 #include "util.h"
 #include <fcntl.h>
+#include <pty.h>
+
 
 
 #ifndef PYDA_DYNAMORIO_CLIENT
@@ -69,28 +71,66 @@ pyda_process* pyda_mk_process() {
 }
 
 extern file_t our_stderr;
-void pyda_capture_io(pyda_process *proc) {
+
+// NOTE: This is called from thread_init_event on the main app thread
+void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
     int orig_in = dup(0);
     int orig_out = dup(1);
     int orig_err = dup(2);
 
-    int pipe1[2], pipe2[2], pipe3[2];
-    if (pipe(pipe1) || pipe(pipe2) || pipe(pipe3)) {
-        dr_fprintf(STDERR, "Failed to create pipes\n");
-        dr_abort();
+    if (use_pty) {
+        int master, slave;
+        
+        if (openpty(&master, &slave, NULL, NULL, NULL)) {
+            // Failed to open TTY
+            DEBUG_PRINTF("Failed to open TTY err %s\n", strerror(errno));
+            use_pty = false;
+        } else {
+            dup2(slave, 0);
+            dup2(slave, 1);
+            dup2(slave, 2);
+            proc->stdin_fd = dup(master);
+            proc->stdout_fd = dup(master);
+            proc->stderr_fd = dup(master);
+
+            // Modify tty attributes
+            struct termios tmios;
+            if (tcgetattr(master, &tmios)) {
+                DEBUG_PRINTF("Failed to get termios\n");
+            } else {
+                if (pty_raw)
+                    cfmakeraw(&tmios);
+
+                // Always: no echo
+                tmios.c_lflag &= ~(ECHO);
+
+                if (tcsetattr(master, TCSANOW, &tmios)) {
+                    DEBUG_PRINTF("Failed to set termios\n");
+                }
+            }
+        }
+    }
+    
+    if (!use_pty) { // We were asked not to use a pty, or pty init failed
+        int pipe1[2], pipe2[2], pipe3[2];
+        if (pipe(pipe1) || pipe(pipe2) || pipe(pipe3)) {
+            dr_fprintf(STDERR, "Failed to create pipes\n");
+            dr_abort();
+        }
+
+        dup2(pipe1[0], 0);
+        dup2(pipe2[1], 1);
+        dup2(pipe3[1], 2);
+
+        proc->stdin_fd = pipe1[1];
+        proc->stdout_fd = pipe2[0];
+        proc->stderr_fd = pipe3[0];
     }
 
-    dup2(pipe1[0], 0);
-    dup2(pipe2[1], 1);
-    dup2(pipe3[1], 2);
 
     stdin = fdopen(orig_in, "r");
     stdout = fdopen(orig_out, "w");
     stderr = fdopen(orig_err, "w");
-
-    proc->stdin_fd = pipe1[1];
-    proc->stdout_fd = pipe2[0];
-    proc->stderr_fd = pipe3[0];
 
     our_stderr = orig_err;
 

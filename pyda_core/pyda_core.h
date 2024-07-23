@@ -80,7 +80,7 @@ struct pyda_thread_s {
 pyda_process* pyda_mk_process();
 pyda_thread* pyda_mk_thread(pyda_process*);
 
-void pyda_capture_io(pyda_process *p);
+void pyda_capture_io(pyda_process *p, int use_pty, int pty_raw);
 
 void pyda_process_destroy(pyda_process *p);
 void pyda_thread_destroy(pyda_thread *t);

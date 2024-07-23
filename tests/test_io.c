@@ -1,8 +1,5 @@
 #include <stdio.h>
 int main() {
-    setvbuf(stdin, NULL, _IONBF, 0);
-    setvbuf(stdout, NULL, _IONBF, 0);
-    setvbuf(stderr, NULL, _IONBF, 0);
     printf("hello there. please enter your name:\n");
     char name[100];
     scanf("%s", name);
