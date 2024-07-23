@@ -9,6 +9,12 @@ class ProcessTube(tube):
         super(ProcessTube, self).__init__(**kwargs)
 
         self.closed = {"recv": False, "send": False}
+        if stdin_fd is None or stdout_fd is None:
+            self.closed["recv"] = True
+            self.closed["send"] = True
+            self._captured = False
+        else:
+            self._captured = True
 
         self.stdin_fd = stdin_fd
         self.stdout_fd = stdout_fd
@@ -23,6 +29,9 @@ class ProcessTube(tube):
         raise NotImplementedError("recvall() not implemented")
 
     def recv_raw(self, numb, *a):
+        if not self._captured:
+            raise RuntimeError("I/O must be explicitly captured using process(io=True)")
+
         if self.closed["recv"]:
             raise EOFError
         
@@ -61,6 +70,9 @@ class ProcessTube(tube):
     # TODO: What happens when the pipe fills? This call
     # will indefinitely block?
     def send_raw(self, data):
+        if not self._captured:
+            raise RuntimeError("I/O must be explicitly captured using process(io=True)")
+
         if self.closed["send"]:
             raise EOFError
 
@@ -78,6 +90,9 @@ class ProcessTube(tube):
         raise NotImplementedError("settimeout_raw() not implemented")
 
     def can_recv_raw(self, timeout):
+        if not self._captured:
+            raise RuntimeError("I/O must be explicitly captured using process(io=True)")
+
         if self.closed["recv"]:
             return False
 

@@ -79,12 +79,7 @@ pyda_process* pyda_mk_process() {
 
 extern file_t our_stderr;
 
-// NOTE: This is called from thread_init_event on the main app thread
 void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
-    int orig_in = dup(0);
-    int orig_out = dup(1);
-    int orig_err = dup(2);
-
     if (use_pty) {
         int master, slave;
         
@@ -134,18 +129,30 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
         proc->stderr_fd = pipe3[0];
     }
 
+    // nonblocking
+    if (fcntl(proc->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stderr_fd, F_SETFL, O_NONBLOCK)) {
+        dr_fprintf(STDERR, "Failed to set stdout to nonblocking\n");
+        dr_abort();
+    }
+}
+
+// NOTE: This is called from thread_init_event on the main app thread
+void pyda_prepare_io(pyda_process *proc) {
+    // This sets up three new FDs for Pyda to
+    // direct its output to. We set stdin/out/err to
+    // the new FDs here, which occurs prior to Python startup
+    //
+    // Thus, Python will also use these new fds by default.
+
+    int orig_in = dup(0);
+    int orig_out = dup(1);
+    int orig_err = dup(2);
 
     stdin = fdopen(orig_in, "r");
     stdout = fdopen(orig_out, "w");
     stderr = fdopen(orig_err, "w");
 
     our_stderr = orig_err;
-
-    // nonblocking
-    if (fcntl(proc->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stderr_fd, F_SETFL, O_NONBLOCK)) {
-        dr_fprintf(STDERR, "Failed to set stdout to nonblocking\n");
-        dr_abort();
-    }
 }
 
 pyda_thread* pyda_mk_thread(pyda_process *proc) {

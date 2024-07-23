@@ -288,8 +288,14 @@ PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_process *proc = p->main_thread->proc;
 
+    if (!getenv("PYDA_NO_CAPTURE") || getenv("PYDA_NO_CAPTURE")[0] != '1') {
+        int no_pty = (getenv("PYDA_NO_PTY") && getenv("PYDA_NO_PTY")[0] == '1');
+        int no_raw = (getenv("PYDA_NO_RAW") && getenv("PYDA_NO_RAW")[0] == '1');
+        pyda_capture_io(proc, !no_pty, !no_raw);
+    }
+
     if (proc->stdin_fd == -1) {
-        PyErr_SetString(PyExc_RuntimeError, "IO is not captured");
+        PyErr_SetString(PyExc_RuntimeError, "IO was not captured");
         return NULL;
     }
 

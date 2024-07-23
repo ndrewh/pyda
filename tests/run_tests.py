@@ -13,6 +13,8 @@ class ExpectedResult:
     # checker(stdout, stderr) -> bool
     checkers: list[Callable[[bytes, bytes], bool]] = list
 
+    hang: bool = False
+
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
         stdout.decode()
@@ -109,13 +111,23 @@ TESTS = [
     )),
 
     # test "blocking" I/O
-    ("test_io", "test_io.c", "test_io.py", ExpectedResult(
+    ("test_io1", "test_io.c", "test_io1.py", ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
             no_warnings_or_errors,
             lambda o, e: o.count(b"hello") == 0,
             lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+
+    # test "blocking" I/O
+    ("test_io2", "test_io.c", "test_io2.py", ExpectedResult(
+        hang=True,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+            lambda o, e: e.count(b"RuntimeError: I/O must be explicitly captured using process(io=True)") == 1,
         ]
     )),
 
@@ -194,36 +206,47 @@ def run_test(c_file, python_file, expected_result, test_name, debug):
             raise RuntimeError("Failed to compile test")
 
         result_str = ""
+        stdout = None
+        stderr = None
         try:
             result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", shell=True, timeout=10, capture_output=True)
-        except subprocess.TimeoutExpired:
-            result_str += " Timeout occurred. Did the test hang?\n"
+            stdout = result.stdout
+            stderr = result.stderr
+            if expected_result.hang:
+                result_str += "  Expected test to hang, but it did not\n"
+        except subprocess.TimeoutExpired as err:
+            if not expected_result.hang:
+                result_str += "  Timeout occurred. Did the test hang?\n"
+
             result = None
+            stdout = err.stdout
+            stderr = err.stderr
 
         
         if result:
-            # Check the results
+            # Check the retcode
             if expected_result.retcode is not None:
                 if result.returncode != expected_result.retcode:
                     result_str += f"  Expected return code {expected_result.retcode}, got {result.returncode}\n"
 
-            for (i, checker) in enumerate(expected_result.checkers):
-                checker_res = False
-                try:
-                    checker_res = checker(result.stdout, result.stderr)
-                except:
-                    pass
-                
-                if not checker_res:
-                    result_str += f"  Checker {i} failed\n"
+        # Unconditionally check the output
+        for (i, checker) in enumerate(expected_result.checkers):
+            checker_res = False
+            try:
+                checker_res = checker(stdout, stderr)
+            except:
+                pass
+            
+            if not checker_res:
+                result_str += f"  Checker {i} failed\n"
 
 
         if len(result_str) > 0:
             print(f"[FAIL] {test_name} ({python_file} {c_file})")
             print(result_str)
             if debug:
-                print(result.stdout.decode())
-                print(result.stderr.decode())
+                print(stdout.decode())
+                print(stderr.decode())
 
             return False
         else:

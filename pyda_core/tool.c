@@ -95,13 +95,8 @@ void thread_init_event(void *drcontext) {
     pyda_thread *t;
     if (!global_proc) {
         global_proc = pyda_mk_process();
-        
-        if (!getenv("PYDA_NO_CAPTURE") || getenv("PYDA_NO_CAPTURE")[0] != '1') {
-            int no_pty = (getenv("PYDA_NO_PTY") && getenv("PYDA_NO_PTY")[0] == '1');
-            int no_raw = (getenv("PYDA_NO_RAW") && getenv("PYDA_NO_RAW")[0] == '1');
-            pyda_capture_io(global_proc, !no_pty, !no_raw);
-        }
 
+        pyda_prepare_io(global_proc);
         t = global_proc->main_thread;
     } else {
         t = pyda_mk_thread(global_proc);

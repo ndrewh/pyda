@@ -4,11 +4,14 @@ from .tube import ProcessTube
 import pyda_core
 
 class Process(ProcessTube):
-    def __init__(self, handle):
+    def __init__(self, handle, io=False):
         self._p = handle
 
-        fds = self._p.capture_io()
-        super().__init__(fds[0], fds[1])
+        if io:
+            fds = self._p.capture_io()
+            super().__init__(fds[0], fds[1])
+        else:
+            super().__init__(None, None)
 
         self._hooks = {}
         self._syscall_pre_hooks = {}
