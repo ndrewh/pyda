@@ -120,7 +120,16 @@ TESTS = [
     )),
 
     # test "blocking" run_until
-    ("test_blocking", "simple.c", "test_blocking.py", ExpectedResult(
+    ("test_blocking1", "simple.c", "test_blocking1.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+
+    ("test_blocking2", "simple.c", "test_blocking2.py", ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
