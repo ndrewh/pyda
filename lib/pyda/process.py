@@ -4,7 +4,7 @@ from .tube import ProcessTube
 import pyda_core
 
 class Process(ProcessTube):
-    def __init__(self, handle, prevent_close_stdio=True):
+    def __init__(self, handle):
         self._p = handle
 
         fds = self._p.capture_io()
