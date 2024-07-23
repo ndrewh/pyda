@@ -40,6 +40,7 @@ pthread_cond_t python_thread_init1;
 pthread_cond_t python_thread_init2;
 
 int g_pyda_tls_idx;
+int g_pyda_tls_is_python_thread_idx;
 client_id_t pyda_client_id;
 
 DR_EXPORT void
@@ -80,6 +81,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     pthread_cond_init(&python_thread_init1, 0);
 
     g_pyda_tls_idx = drmgr_register_tls_field();
+    g_pyda_tls_is_python_thread_idx = drmgr_register_tls_field();
 }
 void module_load_event(void *drcontext, const module_data_t *mod, bool loaded) {
     DEBUG_PRINTF("module_load_event: %s\n", mod->full_path);
@@ -109,6 +111,7 @@ void thread_init_event(void *drcontext) {
 
     // WARN: This must use drcontext passed in.
     drmgr_set_tls_field(drcontext, g_pyda_tls_idx, (void*)t);
+    drmgr_set_tls_field(drcontext, g_pyda_tls_is_python_thread_idx, (void*)0);
 
     // some init that python requires(?)
     __ctype_init();
@@ -231,7 +234,7 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     } else if (pyda_check_run_until(t->proc, instr_get_app_pc(instr))) {
         DEBUG_PRINTF("installing run_until hook at %p\n", instr_get_app_pc(instr));
         dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_rununtil_reached,
-                         true /* save fpstate */, 0);
+                         true /* save fpstate */, 1, OPND_CREATE_INTPTR(instr_get_app_pc(instr)));
     }
     return DR_EMIT_DEFAULT;
 }
@@ -292,6 +295,7 @@ static void* python_thread_init(pyda_thread *t) {
 
     dr_client_thread_set_suspendable(false);
     pyda_thread_setspecific(g_pyda_tls_idx, (void*)t);
+    pyda_thread_setspecific(g_pyda_tls_is_python_thread_idx, (void*)1);
     return tls;
 }
 

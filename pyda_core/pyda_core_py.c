@@ -223,6 +223,14 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     return (PyObject*)result;
 }
 
+static int check_python_thread(pyda_thread *t) {
+    if (pyda_thread_getspecific(g_pyda_tls_is_python_thread_idx) != (void*)1) {
+        PyErr_SetString(InvalidStateError, ".run()/.run_until() cannot be called from hooks.");
+        return 1;
+    }
+    return 0;
+}
+
 static int check_exited(pyda_thread *t) {
     if (t->app_exited) {
         PyErr_SetString(InvalidStateError, "Thread has already exited; cannot be resumed");
@@ -234,6 +242,7 @@ static int check_exited(pyda_thread *t) {
 static PyObject *
 PydaProcess_run(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_python_thread(t)) return NULL;
     if (check_exited(t)) return NULL;
 
     Py_BEGIN_ALLOW_THREADS
@@ -250,6 +259,7 @@ PydaProcess_run(PyObject* self, PyObject *noarg) {
 static PyObject *
 PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_python_thread(t)) return NULL;
     if (check_exited(t)) return NULL;
 
     t->python_blocked_on_io = 1;
@@ -294,6 +304,7 @@ PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
 static PyObject *
 PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_python_thread(t)) return NULL;
     if (check_exited(t)) return NULL;
 
     unsigned long addr;

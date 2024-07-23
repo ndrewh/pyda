@@ -136,6 +136,24 @@ TESTS = [
             no_warnings_or_errors,
             lambda o, e: o.count(b"pass\n") == 1,
         ]
+    )),
+
+    ("test_blocking3", "simple.c", "test_blocking3.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR: Did you forget to call p.run()?") == 1,
+        ]
+    )),
+
+    ("test_blocking4", "simple.c", "test_blocking4.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
+            lambda o, e: e.count(b"Hook call failed") == 1,
+            lambda o, e: e.count(b"InvalidStateError") == 1,
+        ]
     ))
 ]
 

@@ -8,6 +8,15 @@ e.address = p.maps[p.exe_path].base
 
 plt_map = { e.plt[x]: x for x in e.plt }
 
+counter = 0
+def malloc_hook(p):
+    global counter
+    print(f"malloc({p.regs.rdi})")
+    counter += 1
+    p.run_until(0x1337133713371337)
+
+p.hook(e.plt["malloc"], malloc_hook)
+
 counter2 = 0
 try:
     while True:
@@ -16,5 +25,5 @@ try:
 except ThreadExitError:
     pass
 
-assert counter2 == 20, f"{counter2}"
+assert counter == counter2
 print("pass")

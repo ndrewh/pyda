@@ -1,4 +1,5 @@
 extern int g_pyda_tls_idx;
+extern int g_pyda_tls_is_python_thread_idx;
 int pyda_thread_setspecific(pthread_key_t key, void *val);
 void* pyda_thread_getspecific(pthread_key_t key);
 
