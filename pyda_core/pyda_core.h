@@ -12,6 +12,7 @@
 #ifdef PYDA_DYNAMORIO_CLIENT
 #include <dr_api.h>
 #include "hashtable.h"
+#include "drvector.h"
 #endif
 
 extern int is_dynamorio_running;
@@ -29,9 +30,6 @@ struct pyda_hook_s {
 };
 
 struct pyda_process_s {
-#ifdef PYDA_DYNAMORIO_CLIENT
-    hashtable_t callbacks;
-#endif
     int dirty_hooks;
     int refcount;
 
@@ -48,6 +46,13 @@ struct pyda_process_s {
     int stdin_fd, stdout_fd, stderr_fd;
 
     void* entrypoint;
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    hashtable_t callbacks;
+    drvector_t threads;
+    drvector_t thread_run_untils; // vec of pcs
+#endif
+
 };
 
 struct pyda_thread_s {
@@ -61,16 +66,17 @@ struct pyda_thread_s {
     int python_blocked_on_io;
 
     pyda_process *proc;
-    // PyObject *py_obj;
 
-    int rip_updated_in_cleancall;
-    int skip_next_hook;
+    int rip_updated_in_python;
+    int skip_next_hook; // Used when redirecting execution to same PC after a clean-call
 
-    int python_exited;
-    int app_exited;
-    int errored;
+    int python_exited; // Did this thread's python thread exit?
+    int app_exited; // Did this thread's app thread exit?
+    int errored; // Did some Pyda-misuse occur, or did the Python thread throw during a hook?
 
     int yield_count;
+    uint64_t run_until;
+    int dirty_run_until;
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
@@ -104,10 +110,16 @@ void pyda_set_syscall_pre_hook(pyda_process *p, PyObject *callback);
 void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback);
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr);
 
+void* pyda_get_run_until(pyda_thread *t);
+void pyda_set_run_until(pyda_thread *t, void *pc);
+void pyda_clear_run_until(pyda_thread *t);
+int pyda_check_run_until(pyda_process *proc, void *test_pc);
+
 // These can only be called from application threads
 int pyda_flush_hooks();
 void pyda_hook_cleancall(pyda_hook *cb);
 int pyda_hook_syscall(int syscall_num, int is_pre);
+void pyda_hook_rununtil_reached(void *pc);
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 

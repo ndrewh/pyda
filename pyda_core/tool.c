@@ -228,6 +228,10 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
         DEBUG_PRINTF("installing hook at %p\n", instr_get_app_pc(instr));
         dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_cleancall,
                          true /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
+    } else if (pyda_check_run_until(t->proc, instr_get_app_pc(instr))) {
+        DEBUG_PRINTF("installing run_until hook at %p\n", instr_get_app_pc(instr));
+        dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_rununtil_reached,
+                         true /* save fpstate */, 0);
     }
     return DR_EMIT_DEFAULT;
 }

@@ -25,12 +25,19 @@ static void free_hook(void *data) {
     dr_global_free(hook, sizeof(pyda_hook));
 }
 
+static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc);
+static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thread *t, void* hook_addr);
+
+
 pyda_process* pyda_mk_process() {
     ABORT_IF_NODYNAMORIO;
 
     pyda_process *proc = dr_global_alloc(sizeof(pyda_process));
     proc->refcount = 0; // xxx: will be incremented to 1 by first pyda_mk_thread
     proc->dirty_hooks = 0;
+    drvector_init(&proc->threads, 0, true, NULL);
+    drvector_init(&proc->thread_run_untils, 0, true, NULL);
+
     proc->main_thread = pyda_mk_thread(proc);
     hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, free_hook, NULL, NULL);
 
@@ -181,12 +188,16 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
 
     static volatile unsigned int tid = 0;
     thread->tid = dr_atomic_add32_return_sum(&tid, 1);
-    thread->rip_updated_in_cleancall = 0;
+    thread->rip_updated_in_python = 0;
     thread->skip_next_hook = 0;
     thread->python_exited = 0;
     thread->app_exited = 0;
     thread->errored = 0;
     thread->python_blocked_on_io = 0;
+    thread->run_until = 0;
+
+    drvector_append(&proc->threads, thread);
+    drvector_append(&proc->thread_run_untils, NULL);
 
     // PyErr_SetString(PyExc_RuntimeError, "OK");
     return thread;
@@ -216,6 +227,9 @@ void pyda_process_destroy(pyda_process *p) {
     p->syscall_post_hook = NULL;
 
     hashtable_delete(&p->callbacks);
+    drvector_delete(&p->threads);
+    drvector_delete(&p->thread_run_untils);
+
     dr_global_free(p, sizeof(pyda_process));
 
     PyGILState_Release(gstate);
@@ -386,11 +400,22 @@ static void flush_hook(void *hook) {
 int pyda_flush_hooks() {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     pyda_process *p = t->proc;
-    if (!p->dirty_hooks) return 0;
 
-    hashtable_apply_to_all_payloads(&p->callbacks, flush_hook);
-    p->dirty_hooks = 0;
-    return 1;
+    int flushed = 0;
+    if (t->dirty_run_until) {
+        void *run_until = pyda_get_run_until(t);
+        if (run_until) dr_flush_region((void*)run_until, 1);
+        t->dirty_run_until = 0;
+        flushed = 1;
+    }
+
+    if (p->dirty_hooks) {
+        hashtable_apply_to_all_payloads(&p->callbacks, flush_hook);
+        p->dirty_hooks = 0;
+        flushed = 1;
+    }
+
+    return flushed;
 }
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr) {
     pyda_hook *cb = (void*)hashtable_lookup(&p->callbacks, addr);
@@ -402,8 +427,36 @@ pyda_hook* pyda_get_callback(pyda_process *p, void* addr) {
     return NULL;
 }
 
+void *pyda_get_run_until(pyda_thread *t) {
+    return (void*)t->run_until;
+}
+
+void pyda_set_run_until(pyda_thread *t, void *pc) {
+    t->run_until = (uint64_t)pc;
+    t->dirty_run_until = 1;
+    drvector_set_entry(&t->proc->thread_run_untils, t->tid-1, pc);
+    // NOTE: Will be flushed by pyda_break callers. Don't need to flush here.
+}
+
+void pyda_clear_run_until(pyda_thread *t) {
+    uint64_t run_until = t->run_until;
+    t->run_until = 0;
+    t->dirty_run_until = 1;
+    drvector_set_entry(&t->proc->thread_run_untils, t->tid-1, NULL);
+
+    dr_flush_region((void*)run_until, 1);
+}
+
+int pyda_check_run_until(pyda_process *proc, void *test_pc) {
+    // Unlocked for performance.
+    for (int i=0; i<proc->thread_run_untils.capacity; i++) {
+        if (test_pc == proc->thread_run_untils.array[i]) return 1;
+    }
+    return 0;
+}
+
 static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc) {
-    *gstate = PyGILState_Ensure();
+    if (gstate) *gstate = PyGILState_Ensure();
 
     void *drcontext = dr_get_current_drcontext();
     t->cur_context.size = sizeof(dr_mcontext_t);
@@ -413,7 +466,7 @@ static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_threa
     if (pc)
         t->cur_context.pc = (app_pc)pc;
 
-    t->rip_updated_in_cleancall = 0;
+    t->rip_updated_in_python = 0;
 }
 
 static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thread *t, void* hook_addr) {
@@ -421,7 +474,7 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
 
     // Syscall hooks are not allowed to modify PC
     if (!hook_addr) {
-        if (t->rip_updated_in_cleancall) {
+        if (t->rip_updated_in_python) {
             dr_fprintf(STDERR, "\n[Pyda] ERROR: Syscall hooks are not allowed to modify PC. Skipping future hooks.\n");
             dr_flush_file(STDERR);
             t->errored = 1;
@@ -430,28 +483,27 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
         if (t->proc->dirty_hooks) {
             dr_fprintf(STDERR, "\n[Pyda] WARN: Hooks should not be modified in a syscall. This is UB, continuing.\n");
         }
-        PyGILState_Release(*gstate);
+        if (gstate) PyGILState_Release(*gstate);
         return;
     }
 
-    if (t->cur_context.pc == (app_pc)hook_addr && t->rip_updated_in_cleancall) {
-        if (t->rip_updated_in_cleancall) {
-            dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook updated RIP to the same address. This is UB. Skipping future hooks.\n");
-            dr_flush_file(STDERR);
-            t->errored = 1;
-        }
+    if (t->cur_context.pc == (app_pc)hook_addr && t->rip_updated_in_python) {
+        dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook updated RIP to the same address. This is UB. Skipping future hooks.\n");
+        dr_flush_file(STDERR);
+        t->errored = 1;
     }
 
-    if (pyda_flush_hooks() || t->rip_updated_in_cleancall) {
-        if (t->cur_context.pc == hook_addr) {
+    if (pyda_flush_hooks() || t->rip_updated_in_python) {
+        // XXX: We might not be holding the GIL here (in run_until case) -- is hash-table locked?
+        if (t->cur_context.pc == hook_addr && (pyda_get_callback(t->proc, hook_addr) || pyda_get_run_until(t) == hook_addr)) {
             t->skip_next_hook = 1;
         }
         // we need to call dr_redirect_execution
-        PyGILState_Release(*gstate);
+        if (gstate) PyGILState_Release(*gstate);
         dr_redirect_execution(&t->cur_context);
     } else {
         dr_set_mcontext(drcontext, &t->cur_context);
-        PyGILState_Release(*gstate);
+        if (gstate) PyGILState_Release(*gstate);
     }
 }
 
@@ -484,7 +536,27 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     }
 
     DEBUG_PRINTF("cleancall ret %p %p %p\n", cb, cb->py_func, t);
-    thread_prepare_for_python_return(&gstate, t, cb->addr);
+
+    PyGILState_Release(gstate);
+
+    // If this also happens to be the run_until target for this thread,
+    // we deal with that here (instead of inserting two hooks)
+    if (cb->addr == pyda_get_run_until(t)) {
+        // It is UB to modify PC in a hook that is also the run_until target
+        if (t->rip_updated_in_python) {
+            dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook updated RIP, but run_until target is hit. This is UB. Continuing.");
+            dr_flush_file(STDERR);
+            t->errored = 1;
+        }
+
+        // Clear the run_until flag and flush the block
+        pyda_clear_run_until(t);
+
+        // Wait for Python to yield back to us
+        pyda_break(t);
+    }
+
+    thread_prepare_for_python_return(NULL, t, cb->addr); // MAY NOT RETURN
 }
 
 int pyda_hook_syscall(int syscall_num, int is_pre) {
@@ -492,9 +564,13 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (t->errored) return 1;
 
-    if (syscall_num == 1 && t->python_blocked_on_io) { // write
+    if (is_pre == 0 && (syscall_num == 0 || syscall_num == 1) && t->python_blocked_on_io) { // read/write
         t->python_blocked_on_io = 0;
+        thread_prepare_for_python_entry(NULL, t, NULL);
         pyda_break(t);
+        thread_prepare_for_python_return(NULL, t, NULL);
+
+        if (t->errored) return 1;
     }
 
     PyObject *hook = (is_pre ? t->proc->syscall_pre_hook : t->proc->syscall_post_hook);
@@ -530,6 +606,31 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     thread_prepare_for_python_return(&gstate, t, NULL);
 
     return should_run;
+}
+
+void pyda_hook_rununtil_reached(void *pc) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (t->errored) return;
+    if (t->skip_next_hook) {
+        t->skip_next_hook = 0;
+        return;
+    }
+
+    if (pyda_get_run_until(t) == pc) {
+        thread_prepare_for_python_entry(NULL, t, pc);
+
+        // Clear the run_until flag and flush the block
+        pyda_clear_run_until(t);
+        
+        // Wait for Python to yield back to us
+        pyda_break(t);
+        thread_prepare_for_python_return(NULL, t, pc); // MAY NOT RETURN
+    } else {
+        // This can actually happen in two cases:
+        // 1. The code cache entry was not flushed (BUG in Pyda!) after a run_until
+        // 2. Another thread set this run_until hook (This is fine.)
+        DEBUG_PRINTF("STALE run_until reached: %llx\n", pc);
+    }
 }
 
 #endif

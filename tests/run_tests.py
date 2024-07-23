@@ -117,6 +117,16 @@ TESTS = [
             lambda o, e: o.count(b"hello") == 0,
             lambda o, e: o.count(b"pass\n") == 1,
         ]
+    )),
+
+    # test "blocking" run_until
+    ("test_blocking", "simple.c", "test_blocking.py", ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
     ))
 ]
 

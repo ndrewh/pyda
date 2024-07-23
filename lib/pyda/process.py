@@ -117,6 +117,11 @@ class Process(ProcessTube):
     def run(self):
         self._has_run = True
         self._p.run()
+
+    def run_until(self, addr):
+        self._has_run = True
+        self._p.run_until_pc(addr)
+    
     
     @property
     def tid(self):

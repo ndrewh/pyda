@@ -64,18 +64,25 @@ static struct PyModuleDef pyda_module = {
 };
 
 static PyObject *MemoryError;
+static PyObject *ThreadExitError;
+static PyObject *InvalidStateError;
+
+static void register_exception(PyObject *mod, PyObject **target, const char *fullname, const char *name) {
+    *target = PyErr_NewException(fullname, NULL, NULL);
+    Py_XINCREF(*target);
+    if (PyModule_AddObject(mod, name, *target) < 0) {
+        Py_XDECREF(*target);
+        Py_CLEAR(*target);
+    }
+}
 
 PyMODINIT_FUNC
 PyInit_pyda_core(void) {
     PyObject *m = PyModule_Create(&pyda_module);
-    MemoryError = PyErr_NewException("pyda.MemoryError", NULL, NULL);
-    Py_XINCREF(MemoryError);
-    if (PyModule_AddObject(m, "MemoryError", MemoryError) < 0) {
-        Py_XDECREF(MemoryError);
-        Py_CLEAR(MemoryError);
-        Py_DECREF(m);
-        return NULL;
-    }
+
+    register_exception(m, &MemoryError, "pyda.MemoryError", "MemoryError");
+    register_exception(m, &ThreadExitError, "pyda.ThreadExitError", "ThreadExitError");
+    register_exception(m, &InvalidStateError, "pyda.InvalidStateError", "InvalidStateError");
 
 #ifdef X86
     PyModule_AddIntConstant(m, "REG_RAX", DR_REG_RAX);
@@ -218,7 +225,7 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
 
 static int check_exited(pyda_thread *t) {
     if (t->app_exited) {
-        PyErr_SetString(PyExc_RuntimeError, "Thread has already exited; cannot be resumed");
+        PyErr_SetString(InvalidStateError, "Thread has already exited; cannot be resumed");
         return 1;
     }
     return 0;
@@ -257,6 +264,11 @@ PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_END_ALLOW_THREADS
 
+    if (t->app_exited) {
+        PyErr_SetString(ThreadExitError, "Thread exited while Pyda was waiting on I/O.");
+        return NULL;
+    }
+
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -281,25 +293,26 @@ PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
 
 static PyObject *
 PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
-    PyErr_SetString(PyExc_RuntimeError, "Not implemented");
-    return NULL;
-
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (check_exited(t)) return NULL;
-    t->python_blocked_on_io = 1;
 
     unsigned long addr;
-
     if (!PyArg_ParseTuple(args, "K", &addr))
         return NULL;
 
+    pyda_set_run_until(t, (void*)addr);
+
     Py_BEGIN_ALLOW_THREADS
-    // t->python_blocked_until = addr;
     pyda_yield(t);
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("yield returned\n");
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_END_ALLOW_THREADS
+
+    if (t->app_exited) {
+        PyErr_SetString(ThreadExitError, "Thread exited before reaching run_until target.");
+        return NULL;
+    }
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -435,7 +448,7 @@ PydaProcess_set_register(PyObject *self, PyObject *args) {
 
     if (reg_id == PYDA_REG_PC) {
         mc->pc = (void*)raw[0];
-        t->rip_updated_in_cleancall = 1;
+        t->rip_updated_in_python = 1;
     } else {
         if (!reg_set_value_ex(reg_id, mc, (uint8_t*)&raw)) {
             PyErr_SetString(PyExc_RuntimeError, "Failed to set register");
