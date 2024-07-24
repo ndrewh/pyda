@@ -126,11 +126,11 @@ TESTS = [
 
     # test "blocking" I/O
     ("test_io2", "test_io.c", "test_io2.py", ExpectedResult(
-        hang=True,
         checkers=[
             output_checker,
             lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
             lambda o, e: e.count(b"RuntimeError: I/O must be explicitly captured using process(io=True)") == 1,
+            lambda o, e: o.count(b"hello there") == 1,
         ]
     )),
 
@@ -210,7 +210,7 @@ def run_test(c_file, python_file, expected_result, test_name, debug):
 
         result_str = ""
         try:
-            result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", shell=True, timeout=10, capture_output=True)
+            result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
             stdout = result.stdout
             stderr = result.stderr
             if expected_result.hang:
