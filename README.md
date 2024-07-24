@@ -69,7 +69,6 @@ p.run()
 
 ```
 $ pyda examples/simple.py -- ./challenge 
-You are running Pyda v0.0.1
 at main, rsp=0x7fff1303f078
 return address: 0x7f3c50420d90
 ```
