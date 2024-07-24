@@ -17,8 +17,11 @@ class ExpectedResult:
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
-        stdout.decode()
-        stderr.decode()
+        if stdout:
+            stdout.decode()
+
+        if stderr:
+            stderr.decode()
     except:
         return False
     
@@ -206,8 +209,6 @@ def run_test(c_file, python_file, expected_result, test_name, debug):
             raise RuntimeError("Failed to compile test")
 
         result_str = ""
-        stdout = None
-        stderr = None
         try:
             result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", shell=True, timeout=10, capture_output=True)
             stdout = result.stdout
@@ -245,8 +246,10 @@ def run_test(c_file, python_file, expected_result, test_name, debug):
             print(f"[FAIL] {test_name} ({python_file} {c_file})")
             print(result_str)
             if debug:
-                print(stdout.decode())
-                print(stderr.decode())
+                if stdout:
+                    print(stdout.decode())
+                if stderr:
+                    print(stderr.decode())
 
             return False
         else:
