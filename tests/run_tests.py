@@ -131,6 +131,7 @@ TESTS = [
             lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
             lambda o, e: e.count(b"RuntimeError: I/O must be explicitly captured using process(io=True)") == 1,
             lambda o, e: o.count(b"hello there") == 1,
+            lambda o, e: o.count(b"goodbye") == 1,
         ]
     )),
 
