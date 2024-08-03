@@ -80,6 +80,7 @@ struct pyda_thread_s {
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
+    drvector_t context_stack;
 #endif
 };
 
@@ -121,6 +122,9 @@ int pyda_flush_hooks();
 void pyda_hook_cleancall(pyda_hook *cb);
 int pyda_hook_syscall(int syscall_num, int is_pre);
 void pyda_hook_rununtil_reached(void *pc);
+
+int pyda_push_context(pyda_thread *t);
+int pyda_pop_context(pyda_thread *t);
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 

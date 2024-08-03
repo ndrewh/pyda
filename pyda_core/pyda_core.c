@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <pty.h>
 
-
+#define CONTEXT_STACK_LIMIT 10
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 
@@ -120,6 +120,11 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
             dr_abort();
         }
 
+        // Try to make a larger pipe (1M)
+        if (fcntl(pipe1[0], F_SETPIPE_SZ, 1024*1024) || fcntl(pipe2[0], F_SETPIPE_SZ, 1024*1024) || fcntl(pipe3[0], F_SETPIPE_SZ, 1024*1024)) {
+            DEBUG_PRINTF("Failed to set pipe size to 1M\n");
+        }
+
         dup2(pipe1[0], 0);
         dup2(pipe2[1], 1);
         dup2(pipe3[1], 2);
@@ -130,8 +135,8 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
     }
 
     // nonblocking
-    if (fcntl(proc->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stderr_fd, F_SETFL, O_NONBLOCK)) {
-        dr_fprintf(STDERR, "Failed to set stdout to nonblocking\n");
+    if (fcntl(proc->stdout_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stderr_fd, F_SETFL, O_NONBLOCK) || fcntl(proc->stdin_fd, F_SETFL, O_NONBLOCK)) {
+        dr_fprintf(STDERR, "Failed to set stdio to nonblocking\n");
         dr_abort();
     }
 }
@@ -153,6 +158,10 @@ void pyda_prepare_io(pyda_process *proc) {
     stderr = fdopen(orig_err, "w");
 
     our_stderr = orig_err;
+}
+
+static void free_context(void *ptr) {
+    dr_global_free(ptr, sizeof(dr_mcontext_t));
 }
 
 pyda_thread* pyda_mk_thread(pyda_process *proc) {
@@ -202,6 +211,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->errored = 0;
     thread->python_blocked_on_io = 0;
     thread->run_until = 0;
+    drvector_init(&thread->context_stack, 0, true, free_context);
 
     drvector_append(&proc->threads, thread);
     drvector_append(&proc->thread_run_untils, NULL);
@@ -252,6 +262,8 @@ void pyda_thread_destroy(pyda_thread *t) {
         pthread_cond_signal(&t->proc->thread_exit_cond);
         pthread_mutex_unlock(&t->proc->refcount_mutex);
     }
+
+    drvector_delete(&t->context_stack);
 
     dr_global_free(t, sizeof(pyda_thread));
 }
@@ -638,6 +650,25 @@ void pyda_hook_rununtil_reached(void *pc) {
         // 2. Another thread set this run_until hook (This is fine.)
         DEBUG_PRINTF("STALE run_until reached: %llx\n", pc);
     }
+}
+
+int pyda_push_context(pyda_thread *t) {
+    if (t->context_stack.entries >= CONTEXT_STACK_LIMIT) return 0; // arbitrary limit
+
+    dr_mcontext_t *new = dr_global_alloc(sizeof(dr_mcontext_t));
+    memcpy(new, &t->cur_context, sizeof(dr_mcontext_t));
+    drvector_append(&t->context_stack, new);
+    return 1;
+}
+
+int pyda_pop_context(pyda_thread *t) {
+    drvector_lock(&t->context_stack);
+    if (t->context_stack.entries == 0) return 0;
+    t->context_stack.entries--;
+    memcpy(&t->cur_context, t->context_stack.array[t->context_stack.entries], sizeof(dr_mcontext_t));
+    free_context(t->context_stack.array[t->context_stack.entries]);
+    drvector_unlock(&t->context_stack);
+    return 1;
 }
 
 #endif

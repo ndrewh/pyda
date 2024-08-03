@@ -76,15 +76,25 @@ class ProcessTube(tube):
         if self.closed["send"]:
             raise EOFError
 
-        try:
-            os.write(self.stdin_fd, data)
-        except IOError as e:
-            eof_numbers = (errno.EPIPE, errno.ECONNRESET, errno.ECONNREFUSED)
-            if e.errno in eof_numbers or 'Socket is closed' in e.args:
-                self.shutdown("send")
-                raise EOFError
-            else:
-                raise
+        ptr = 0
+        while ptr < len(data):
+            try:
+                count = os.write(self.stdin_fd, data[ptr:])
+                ptr += count
+            except IOError as e:
+                eof_numbers = (errno.EPIPE, errno.ECONNRESET, errno.ECONNREFUSED)
+                if e.errno in eof_numbers or 'Socket is closed' in e.args:
+                    self.shutdown("send")
+                    raise EOFError
+                elif e.errno == errno.EAGAIN:
+                    # If we're waiting for data, let the program continue
+                    try:
+                        self._p.run_until_io()
+                        continue
+                    except Exception as e:
+                        raise EOFError
+                else:
+                    raise
 
     def settimeout_raw(self, timeout):
         raise NotImplementedError("settimeout_raw() not implemented")

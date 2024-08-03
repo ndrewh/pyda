@@ -1,5 +1,6 @@
 from collections import namedtuple
 from dataclasses import dataclass
+import ctypes
 from .tube import ProcessTube
 import pyda_core
 
@@ -131,6 +132,56 @@ class Process(ProcessTube):
         # This returns the thread id of the currently executing thread
         return pyda_core.get_current_thread_id()
     
+    # Jumps to "start" and runs until "end" is reached
+    # NOTE: This cannot be used from hooks
+    def run_from_to(self, start, end):
+        self.regs.rip = start
+        self.run_until(end)
+    
+    # Returns a function that calls into (instrumented) target code
+    # NOTE: This cannot be used from hooks
+    def callable(self, addr):
+        def call(*args):
+            if not self._has_run:
+                raise RuntimeError("Cannot use callable before first process break (no stack!). Try p.run_until(e.symbols['main']) first")
+
+            self._p.push_state()
+
+            ## BEGIN ARCH-SPECIFIC SETUP
+            orig_rip = self.regs.rip
+
+            # Push orig_rip as the return address
+            self.regs.rsp -= 16
+            self.write(self.regs.rsp, orig_rip.to_bytes(8, "little"))
+
+            set_regs_for_call_linux_x86(self, args)
+            ## END ARCH-SPECIFIC SETUP
+
+            self.run_from_to(addr, orig_rip)
+            self._p.pop_state()
+
+        return call
+    
+def set_regs_for_call_linux_x86(p, args):
+    if len(args) > 6:
+        raise NotImplementedError(">6 args not supported yet")
+
+    ARGS = [
+        pyda_core.REG_RDI,
+        pyda_core.REG_RSI,
+        pyda_core.REG_RDX,
+        pyda_core.REG_RCX,
+        pyda_core.REG_R8,
+        pyda_core.REG_R9
+    ]
+    for (reg_id, val) in zip(ARGS, args):
+        if type(val) is int:
+            p._p.set_register(reg_id, val)
+        elif type(val) is bytes:
+            ptr = ctypes.cast(ctypes.c_char_p(val), ctypes.c_void_p).value
+            p._p.set_register(reg_id, ptr)
+        else:
+            raise ValueError(f"Invalid argument type {type(val)}")
 
 class ProcessRegisters():
     def __init__(self, p):

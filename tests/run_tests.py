@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import os
 
 from argparse import ArgumentParser
 
@@ -14,6 +15,10 @@ class ExpectedResult:
     checkers: list[Callable[[bytes, bytes], bool]] = list
 
     hang: bool = False
+
+@dataclass
+class RunOpts:
+    no_pty: bool = False
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
@@ -32,7 +37,7 @@ def no_warnings_or_errors(stdout: bytes, stderr: bytes) -> bool:
 
 TESTS = [
     # tests whether we can handle a large number of threads with concurrent hooks
-    ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", ExpectedResult(
+    ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -44,7 +49,7 @@ TESTS = [
     )),
 
     # tests whether we can handle a large number of threads that do not get waited on
-    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", ExpectedResult(
+    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -56,7 +61,7 @@ TESTS = [
     )),
 
     # hook throws an exception
-    ("err_hook_throw", "thread_1000.c", "err_hook.py", ExpectedResult(
+    ("err_hook_throw", "thread_1000.c", "err_hook.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -65,7 +70,7 @@ TESTS = [
     )),
 
     # thread entry hook throws an exception
-    ("err_thread_entry_throw", "thread_1000.c", "err_thread_entry.py", ExpectedResult(
+    ("err_thread_entry_throw", "thread_1000.c", "err_thread_entry.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -74,7 +79,7 @@ TESTS = [
     )),
 
     # tests whether we can handle a simple syscall hook
-    ("syscall_hooks", "simple.c", "test_syscall.py", ExpectedResult(
+    ("syscall_hooks", "simple.c", "test_syscall.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -85,7 +90,7 @@ TESTS = [
     )),
 
     # tests tid is correct in syscall hooks
-    ("syscall_hooks_multithread", "thread_10.c", "test_syscall.py", ExpectedResult(
+    ("syscall_hooks_multithread", "thread_10.c", "test_syscall.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -95,7 +100,7 @@ TESTS = [
     )),
 
     # user fails to call p.run()
-    ("err_norun", "thread_1000.c", "err_norun.py", ExpectedResult(
+    ("err_norun", "thread_1000.c", "err_norun.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -104,7 +109,7 @@ TESTS = [
     )),
 
     # test register read/write
-    ("test_regs_x86", "simple.c", "test_regs_x86.py", ExpectedResult(
+    ("test_regs_x86", "simple.c", "test_regs_x86.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -114,7 +119,7 @@ TESTS = [
     )),
 
     # test "blocking" I/O
-    ("test_io1", "test_io.c", "test_io1.py", ExpectedResult(
+    ("test_io1", "test_io.c", "test_io1.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -125,7 +130,7 @@ TESTS = [
     )),
 
     # test "blocking" I/O
-    ("test_io2", "test_io.c", "test_io2.py", ExpectedResult(
+    ("test_io2", "test_io.c", "test_io2.py", RunOpts(), ExpectedResult(
         checkers=[
             output_checker,
             lambda o, e: e.count(b"[Pyda] ERROR:") == 1,
@@ -136,7 +141,7 @@ TESTS = [
     )),
 
     # test "blocking" run_until
-    ("test_blocking1", "simple.c", "test_blocking1.py", ExpectedResult(
+    ("test_blocking1", "simple.c", "test_blocking1.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -145,7 +150,7 @@ TESTS = [
         ]
     )),
 
-    ("test_blocking2", "simple.c", "test_blocking2.py", ExpectedResult(
+    ("test_blocking2", "simple.c", "test_blocking2.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -154,7 +159,7 @@ TESTS = [
         ]
     )),
 
-    ("test_blocking3", "simple.c", "test_blocking3.py", ExpectedResult(
+    ("test_blocking3", "simple.c", "test_blocking3.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -162,7 +167,7 @@ TESTS = [
         ]
     )),
 
-    ("test_blocking4", "simple.c", "test_blocking4.py", ExpectedResult(
+    ("test_blocking4", "simple.c", "test_blocking4.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -170,7 +175,27 @@ TESTS = [
             lambda o, e: e.count(b"Hook call failed") == 1,
             lambda o, e: e.count(b"InvalidStateError") == 1,
         ]
-    ))
+    )),
+
+    # test "blocking" i/o with a giant write
+    ("test_hugeio", "test_hugeio.c", "test_hugeio.py", RunOpts(no_pty=True), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+
+    # test "blocking" i/o with a giant write
+    ("test_call", "test_call.c", "test_call.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():
@@ -181,21 +206,21 @@ def main():
 
     if args.test is None:
         res = True
-        for (name, c_file, python_file, expected_result) in TESTS:
-            res &= run_test(c_file, python_file, expected_result, name, args.debug)
+        for (name, c_file, python_file, run_opts, expected_result) in TESTS:
+            res &= run_test(c_file, python_file, run_opts, expected_result, name, args.debug)
     else:
         test = next((t for t in TESTS if t[0] == args.test), None)
         if test is None:
             print(f"Test {args.test} not found")
             exit(1)
         
-        name, c_file, python_file, expected_result = test
-        res = run_test(c_file, python_file, expected_result, name, args.debug)
+        name, c_file, python_file, run_opts, expected_result = test
+        res = run_test(c_file, python_file, run_opts, expected_result, name, args.debug)
 
     if not res:
         exit(1)
 
-def run_test(c_file, python_file, expected_result, test_name, debug):
+def run_test(c_file, python_file, run_opts, expected_result, test_name, debug):
     # Compile to temporary directory
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -209,9 +234,13 @@ def run_test(c_file, python_file, expected_result, test_name, debug):
             print(compile_res.stderr)
             raise RuntimeError("Failed to compile test")
 
+        env = os.environ.copy()
+        if run_opts.no_pty:
+            env["PYDA_NO_PTY"] = "1"
+
         result_str = ""
         try:
-            result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
+            result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
             stdout = result.stdout
             stderr = result.stderr
             if expected_result.hang:

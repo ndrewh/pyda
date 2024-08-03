@@ -3,8 +3,6 @@
 #include "pyda_threads.h"
 #include "util.h"
 
-#include <Python.h>
-
 #ifdef PYDA_DYNAMORIO_CLIENT
 #include "dr_api.h"
 #endif
@@ -39,6 +37,8 @@ static PyObject *PydaProcess_get_main_module(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_filter(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_pre_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_push_state(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_pop_state(PyObject *self, PyObject *args);
 
 static PyMethodDef PydaGlobalMethods[] = {
     {"process",  (PyCFunction)pyda_core_process, METH_KEYWORDS | METH_VARARGS,
@@ -170,6 +170,8 @@ static PyMethodDef PydaProcessMethods[] = {
     // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
     {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
     {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
+    {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
+    {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -775,6 +777,35 @@ PydaProcess_write(PyObject *self, PyObject *args) {
         return NULL;
     }
 #endif // PYDA_DYNAMORIO_CLIENT
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_push_state(PyObject* self, PyObject *noarg) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
+
+    // NOTE: Before we entered python, we saved the state (see: calls to dr_get_mcontext)
+    if (!pyda_push_context(t)) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to push state");
+        return NULL;
+    }
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_pop_state(PyObject* self, PyObject *noarg) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
+
+    if (!pyda_pop_context(t)) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to pop state");
+        return NULL;
+    }
 
     Py_INCREF(Py_None);
     return Py_None;
