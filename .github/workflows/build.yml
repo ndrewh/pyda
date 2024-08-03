@@ -50,7 +50,7 @@ jobs:
       
       - name: Test
         run: |
-          docker run -e PYTHONUNBUFFERED=1 --rm --workdir /opt/pyda/tests --entrypoint python3 pyda_tmp run_tests.py
+          docker run -e PYTHONUNBUFFERED=1 --rm --workdir /opt/pyda/tests --entrypoint python3 pyda_tmp run_tests.py --debug
 
       - name: Push image
         uses: docker/build-push-action@v4.1.1
