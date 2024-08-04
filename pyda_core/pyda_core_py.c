@@ -242,6 +242,11 @@ static int check_exited(pyda_thread *t) {
     }
     return 0;
 }
+static void set_signal_error(pyda_thread *t) {
+    PyObject *tuple = PyTuple_New(1);
+    PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
+    PyErr_SetObject(FatalSignalError, tuple);
+}
 
 static PyObject *
 PydaProcess_run(PyObject* self, PyObject *noarg) {
@@ -257,9 +262,7 @@ PydaProcess_run(PyObject* self, PyObject *noarg) {
     Py_END_ALLOW_THREADS
 
     if (t->signal) {
-        PyObject *tuple = PyTuple_New(1);
-        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
-        PyErr_SetObject(FatalSignalError, tuple);
+        set_signal_error(t);
         return NULL;
     }
 
@@ -291,9 +294,7 @@ PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
     }
 
     if (t->signal) {
-        PyObject *tuple = PyTuple_New(1);
-        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
-        PyErr_SetObject(FatalSignalError, tuple);
+        set_signal_error(t);
         return NULL;
     }
 
@@ -350,9 +351,7 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
     }
 
     if (t->signal) {
-        PyObject *tuple = PyTuple_New(1);
-        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
-        PyErr_SetObject(FatalSignalError, tuple);
+        set_signal_error(t);
         return NULL;
     }
 
