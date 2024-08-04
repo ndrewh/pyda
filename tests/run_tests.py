@@ -205,6 +205,15 @@ TESTS = [
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
+
+    ("test_segv", "test_segv.c", "test_segv.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():

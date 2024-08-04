@@ -162,10 +162,28 @@ class Process(ProcessTube):
             self.write(self.regs.rsp, orig_rip.to_bytes(8, "little"))
 
             set_regs_for_call_linux_x86(self, args)
-            ## END ARCH-SPECIFIC SETUP
+            target_rsp = self.regs.rsp + 8
 
-            self.run_from_to(addr, orig_rip)
-            self._p.pop_state()
+            self.regs.rip = addr
+
+            # This is a bit hacky, but basically
+            # we don't actually know that orig_rip is outside
+            # of the function, we just know it's a reasonably
+            # safe address. You'll get unexpectedly bad perf
+            # if your original RIP is garbage
+
+            count = 0
+            try:
+                while self.regs.rsp != target_rsp:
+                    self.run_until(orig_rip)
+                    count += 1
+                ## END ARCH-SPECIFIC SETUP
+
+            finally:
+                if count > 1:
+                    self.warning(f"WARN: Callable should be used from a safe RIP not within the callee.")
+
+                self._p.pop_state()
 
         return call
     

@@ -266,29 +266,33 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
     // Perhaps unexpectedly, we also only care if the process has not blocked the signal.
     // This prevents us from handling signals when the application has blocked them (e.g.,
     // because it is holding the GIL. We will still handle them before the app gets them.)
-    if ((sig == SIGSEGV || sig == SIGBUS || sig == SIGILL) && !t->python_exited && !siginfo->blocked) {
-        memcpy(&t->cur_context, siginfo->mcontext, sizeof(dr_mcontext_t));
-        t->signal = sig;
+    if ((sig == SIGSEGV || sig == SIGBUS || sig == SIGILL) && !siginfo->blocked) {
+        if (!t->python_exited) {
+            memcpy(&t->cur_context, siginfo->mcontext, sizeof(dr_mcontext_t));
+            t->signal = sig;
 
-        // Clear any previous run_until hooks: they are now invalid
-        // since we are throwing.
-        if (t->run_until)
-            pyda_clear_run_until(t);
-        
-        // Raise an exception in Python +
-        // Wait for Python to yield back to us
-        pyda_break(t);
+            // Clear any previous run_until hooks: they are now invalid
+            // since we are throwing.
+            if (t->run_until)
+                pyda_clear_run_until(t);
+            
+            // Raise an exception in Python +
+            // Wait for Python to yield back to us
+            pyda_break(t);
 
-        // Flushing is actually allowed in signal event handlers.
-        // This updates run_until handlers, updated hooks, etc.
-        pyda_flush_hooks();
+            // Flushing is actually allowed in signal event handlers.
+            // This updates run_until handlers, updated hooks, etc.
+            pyda_flush_hooks();
 
-        // Copy the state back to the siginfo
-        memcpy(siginfo->mcontext, &t->cur_context, sizeof(dr_mcontext_t));
+            // Copy the state back to the siginfo
+            memcpy(siginfo->mcontext, &t->cur_context, sizeof(dr_mcontext_t));
 
-        t->signal = 0;
+            t->signal = 0;
 
-        return DR_SIGNAL_REDIRECT;
+            return DR_SIGNAL_REDIRECT;
+        } else {
+            dr_fprintf(STDERR, "[Pyda] ERROR: Signal %d received after Python exited/died. Add p.run() to receive the signal as an exception.\n", sig);
+        }
     }
 
     return DR_SIGNAL_DELIVER;
