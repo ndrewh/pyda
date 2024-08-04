@@ -380,8 +380,9 @@ python_exit:
     PyEval_SaveThread(); // release GIL
 
     if (!t->app_exited) {
-        if (t->yield_count == 0)
+        if (!t->signal)
             dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
+
         pyda_yield(t); // unblock (note: blocking)
         DEBUG_PRINTF("Implicit pyda_yield finished\n");
     }
