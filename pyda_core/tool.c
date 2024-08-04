@@ -8,6 +8,8 @@
 #include "Python.h"
 #include "util.h"
 
+#include <signal.h>
+
 #include "pyda_core_py.h"
 #include "pyda_core.h"
 #include "pyda_threads.h"
@@ -33,6 +35,8 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 static bool filter_syscall_event(void *drcontext, int sysnum);
 static bool pre_syscall_event(void *drcontext, int sysnum);
 static void post_syscall_event(void *drcontext, int sysnum);
+static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo);
+
 
 extern int is_dynamorio_running;
 
@@ -78,11 +82,14 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     drmgr_register_post_syscall_event(post_syscall_event);
     dr_register_filter_syscall_event(filter_syscall_event);
 
+    drmgr_register_signal_event(signal_event);
+
     pthread_cond_init(&python_thread_init1, 0);
 
     g_pyda_tls_idx = drmgr_register_tls_field();
     g_pyda_tls_is_python_thread_idx = drmgr_register_tls_field();
 }
+
 void module_load_event(void *drcontext, const module_data_t *mod, bool loaded) {
     DEBUG_PRINTF("module_load_event: %s\n", mod->full_path);
 }
@@ -249,6 +256,44 @@ static void post_syscall_event(void *drcontext, int sysnum) {
     pyda_hook_syscall(sysnum, 0);
 }
 
+static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
+    pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
+
+    int sig = siginfo->sig;
+
+    // We only care about signals that indicate crashes. We only care if the python thread
+    // is still running (We need to have someone to raise the exception to!)
+    // Perhaps unexpectedly, we also only care if the process has not blocked the signal.
+    // This prevents us from handling signals when the application has blocked them (e.g.,
+    // because it is holding the GIL. We will still handle them before the app gets them.)
+    if ((sig == SIGSEGV || sig == SIGBUS || sig == SIGILL) && !t->python_exited && !siginfo->blocked) {
+        memcpy(&t->cur_context, siginfo->mcontext, sizeof(dr_mcontext_t));
+        t->signal = sig;
+
+        // Clear any previous run_until hooks: they are now invalid
+        // since we are throwing.
+        if (t->run_until)
+            pyda_clear_run_until(t);
+        
+        // Raise an exception in Python +
+        // Wait for Python to yield back to us
+        pyda_break(t);
+
+        // Flushing is actually allowed in signal event handlers.
+        // This updates run_until handlers, updated hooks, etc.
+        pyda_flush_hooks();
+
+        // Copy the state back to the siginfo
+        memcpy(siginfo->mcontext, &t->cur_context, sizeof(dr_mcontext_t));
+
+        t->signal = 0;
+
+        return DR_SIGNAL_REDIRECT;
+    }
+
+    return DR_SIGNAL_DELIVER;
+}
+
 static void thread_entrypoint_break() {
     DEBUG_PRINTF("entrypoint (break)\n");
 
@@ -335,7 +380,8 @@ python_exit:
     PyEval_SaveThread(); // release GIL
 
     if (!t->app_exited) {
-        dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
+        if (t->yield_count == 0)
+            dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
         pyda_yield(t); // unblock (note: blocking)
         DEBUG_PRINTF("Implicit pyda_yield finished\n");
     }
@@ -383,6 +429,8 @@ void python_aux_thread(void *arg) {
 
     dr_client_thread_set_suspendable(true);
     DEBUG_PRINTF("python_aux_thread 4\n");
+
+    t->python_exited = 1;
 
     if (!t->app_exited) {
         pyda_yield(t);

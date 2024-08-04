@@ -107,7 +107,7 @@ class Process(ProcessTube):
     
     def __getattr__(self, name):
         # TODO: Move these into CPython extension?
-        if name in "regs":
+        if name == "regs":
             return ProcessRegisters(self._p)
         elif name == "mem":
             return ProcessMemory(self)
@@ -117,6 +117,12 @@ class Process(ProcessTube):
             return self._p.get_main_module()
 
         raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
+    
+    def __setattr__(self, name, value):
+        if not name.startswith("_") and name not in ["timeout", "buffer", "closed"]:
+            raise AttributeError(f"Cannot set attribute '{name}'")
+        
+        super().__setattr__(name, value)
     
     def run(self):
         self._has_run = True
@@ -151,7 +157,8 @@ class Process(ProcessTube):
             orig_rip = self.regs.rip
 
             # Push orig_rip as the return address
-            self.regs.rsp -= 16
+            self.regs.rsp &= ~0xf
+            self.regs.rsp -= 8
             self.write(self.regs.rsp, orig_rip.to_bytes(8, "little"))
 
             set_regs_for_call_linux_x86(self, args)

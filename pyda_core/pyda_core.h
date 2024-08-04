@@ -51,6 +51,7 @@ struct pyda_process_s {
     hashtable_t callbacks;
     drvector_t threads;
     drvector_t thread_run_untils; // vec of pcs
+    drvector_t hook_delete_queue;
 #endif
 
 };
@@ -77,6 +78,8 @@ struct pyda_thread_s {
     int yield_count;
     uint64_t run_until;
     int dirty_run_until;
+
+    int signal; // 0 if no signal, otherwise the signal number
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;

@@ -16,8 +16,8 @@ class ProcessTube(tube):
         else:
             self._captured = True
 
-        self.stdin_fd = stdin_fd
-        self.stdout_fd = stdout_fd
+        self._stdin_fd = stdin_fd
+        self._stdout_fd = stdout_fd
 
     # Overwritten for better usability
     def recvall(self, timeout = None):
@@ -40,7 +40,7 @@ class ProcessTube(tube):
 
         while True:
             try:
-                data = os.read(self.stdout_fd, numb)
+                data = os.read(self._stdout_fd, numb)
                 break
             except IOError as e:
                 if e.errno == errno.EAGAIN:
@@ -79,7 +79,7 @@ class ProcessTube(tube):
         ptr = 0
         while ptr < len(data):
             try:
-                count = os.write(self.stdin_fd, data[ptr:])
+                count = os.write(self._stdin_fd, data[ptr:])
                 ptr += count
             except IOError as e:
                 eof_numbers = (errno.EPIPE, errno.ECONNRESET, errno.ECONNREFUSED)
@@ -108,9 +108,9 @@ class ProcessTube(tube):
 
         try:
             if timeout is None:
-                return select.select([self.stdout_fd], [], []) == ([self.stdout_fd], [], [])
+                return select.select([self._stdout_fd], [], []) == ([self._stdout_fd], [], [])
 
-            return select.select([self.stdout_fd], [], [], timeout) == ([self.stdout_fd], [], [])
+            return select.select([self._stdout_fd], [], [], timeout) == ([self._stdout_fd], [], [])
         except ValueError:
             # Not sure why this isn't caught when testing self.proc.stdout.closed,
             # but it's not.

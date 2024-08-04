@@ -37,6 +37,7 @@ pyda_process* pyda_mk_process() {
     proc->dirty_hooks = 0;
     drvector_init(&proc->threads, 0, true, NULL);
     drvector_init(&proc->thread_run_untils, 0, true, NULL);
+    drvector_init(&proc->hook_delete_queue, 0, true, NULL);
 
     proc->main_thread = pyda_mk_thread(proc);
     hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, free_hook, NULL, NULL);
@@ -211,6 +212,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->errored = 0;
     thread->python_blocked_on_io = 0;
     thread->run_until = 0;
+    thread->signal = 0;
     drvector_init(&thread->context_stack, 0, true, free_context);
 
     drvector_append(&proc->threads, thread);
@@ -374,6 +376,7 @@ void pyda_add_hook(pyda_process *t, uint64_t addr, PyObject *callback) {
 void pyda_remove_hook(pyda_process *p, uint64_t addr) {
     hashtable_remove(&p->callbacks, (void*)addr);
     p->dirty_hooks = 1;
+    drvector_append(&p->hook_delete_queue, (void*)addr);
 }
 
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback) {
@@ -432,6 +435,14 @@ int pyda_flush_hooks() {
         hashtable_apply_to_all_payloads(&p->callbacks, flush_hook);
         p->dirty_hooks = 0;
         flushed = 1;
+
+        // Flush deleted hooks
+        drvector_lock(&p->hook_delete_queue);
+        for (int i=0; i<p->hook_delete_queue.entries; i++) {
+            dr_flush_region((void*)p->hook_delete_queue.array[i], 1);
+        }
+        p->hook_delete_queue.entries = 0;
+        drvector_unlock(&p->hook_delete_queue);
     }
 
     return flushed;

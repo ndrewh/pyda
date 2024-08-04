@@ -66,6 +66,7 @@ static struct PyModuleDef pyda_module = {
 static PyObject *MemoryError;
 static PyObject *ThreadExitError;
 static PyObject *InvalidStateError;
+static PyObject *FatalSignalError;
 
 static void register_exception(PyObject *mod, PyObject **target, const char *fullname, const char *name) {
     *target = PyErr_NewException(fullname, NULL, NULL);
@@ -83,6 +84,7 @@ PyInit_pyda_core(void) {
     register_exception(m, &MemoryError, "pyda.MemoryError", "MemoryError");
     register_exception(m, &ThreadExitError, "pyda.ThreadExitError", "ThreadExitError");
     register_exception(m, &InvalidStateError, "pyda.InvalidStateError", "InvalidStateError");
+    register_exception(m, &FatalSignalError, "pyda.FatalSignalError", "FatalSignalError");
 
 #ifdef X86
     PyModule_AddIntConstant(m, "REG_RAX", DR_REG_RAX);
@@ -254,6 +256,13 @@ PydaProcess_run(PyObject* self, PyObject *noarg) {
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_END_ALLOW_THREADS
 
+    if (t->signal) {
+        PyObject *tuple = PyTuple_New(1);
+        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
+        PyErr_SetObject(FatalSignalError, tuple);
+        return NULL;
+    }
+
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -278,6 +287,13 @@ PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
 
     if (t->app_exited) {
         PyErr_SetString(ThreadExitError, "Thread exited while Pyda was waiting on I/O.");
+        return NULL;
+    }
+
+    if (t->signal) {
+        PyObject *tuple = PyTuple_New(1);
+        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
+        PyErr_SetObject(FatalSignalError, tuple);
         return NULL;
     }
 
@@ -330,6 +346,13 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
 
     if (t->app_exited) {
         PyErr_SetString(ThreadExitError, "Thread exited before reaching run_until target.");
+        return NULL;
+    }
+
+    if (t->signal) {
+        PyObject *tuple = PyTuple_New(1);
+        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
+        PyErr_SetObject(FatalSignalError, tuple);
         return NULL;
     }
 

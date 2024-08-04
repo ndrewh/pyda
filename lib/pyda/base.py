@@ -1,5 +1,5 @@
 import pyda_core
-from pyda_core import MemoryError, ThreadExitError, InvalidStateError
+from pyda_core import MemoryError, ThreadExitError, InvalidStateError, FatalSignalError
 from .process import Process, Map
 from . import arch
 import sys
