@@ -145,12 +145,7 @@ void thread_exit_event(void *drcontext) {
     DEBUG_PRINTF("thread_exit_event: %p thread id %d\n", t, dr_get_thread_id(drcontext));
     t->app_exited = 1;
 
-    if (t->proc->main_thread == t) {
-        pyda_break_noblock(t);
-    } else {
-        // TODO: thread exit hook?
-        pyda_thread_destroy(t);
-    }
+    pyda_break_noblock(t);
 }
 
 void python_init() {
@@ -389,7 +384,12 @@ void python_aux_thread(void *arg) {
     dr_client_thread_set_suspendable(true);
     DEBUG_PRINTF("python_aux_thread 4\n");
 
-    pyda_yield_noblock(t);
+    if (!t->app_exited) {
+        pyda_yield(t);
+        DEBUG_PRINTF("Implicit pyda_yield finished\n");
+    }
+
+    pyda_thread_destroy(t);
 
     DEBUG_PRINTF("python_aux_thread 5\n");
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);

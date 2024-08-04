@@ -187,12 +187,21 @@ TESTS = [
         ]
     )),
 
-    # test "blocking" i/o with a giant write
     ("test_call", "test_call.c", "test_call.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
             no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+
+    ("test_thread_blocking", "thread_10.c", "thread_blocking.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 20 for i in range(2, 12))),
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
