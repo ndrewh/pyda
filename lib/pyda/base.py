@@ -30,3 +30,5 @@ def xinfo(addr):
         return None
     path, start, end, perms = res
     return Map(path=path, vaddr=start, size=end - start, perms=perms)
+
+FatalSignalError.__str__ = lambda self: f"Signal {self.args[0]} on Thread {self.args[1]}\nBacktrace:\n{self.args[2]}"

@@ -196,7 +196,7 @@ TESTS = [
         ]
     )),
 
-    ("test_thread_blocking", "thread_10.c", "thread_blocking.py", RunOpts(), ExpectedResult(
+    ("test_thread_blocking", "thread_10.c", "test_thread_blocking.py", RunOpts(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -211,6 +211,7 @@ TESTS = [
         checkers=[
             output_checker,
             no_warnings_or_errors,
+            lambda o, e: o.count(b"(segfault+0xd)") == 4,
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
@@ -220,12 +221,13 @@ def main():
     ap = ArgumentParser()
     ap.add_argument("--test", help="Run a specific test", default=None)
     ap.add_argument("--debug", help="Enable debug output", action="store_true")
+    ap.add_argument("--ntrials", default=5, type=int)
     args = ap.parse_args()
 
     if args.test is None:
         res = True
         for (name, c_file, python_file, run_opts, expected_result) in TESTS:
-            res &= run_test(c_file, python_file, run_opts, expected_result, name, args.debug)
+            res &= run_test(c_file, python_file, run_opts, expected_result, name, args.debug, args.ntrials)
     else:
         test = next((t for t in TESTS if t[0] == args.test), None)
         if test is None:
@@ -233,12 +235,12 @@ def main():
             exit(1)
         
         name, c_file, python_file, run_opts, expected_result = test
-        res = run_test(c_file, python_file, run_opts, expected_result, name, args.debug)
+        res = run_test(c_file, python_file, run_opts, expected_result, name, args.debug, args.ntrials)
 
     if not res:
         exit(1)
 
-def run_test(c_file, python_file, run_opts, expected_result, test_name, debug):
+def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, ntrials):
     # Compile to temporary directory
     with TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -256,53 +258,55 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug):
         if run_opts.no_pty:
             env["PYDA_NO_PTY"] = "1"
 
-        result_str = ""
-        try:
-            result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
-            stdout = result.stdout
-            stderr = result.stderr
-            if expected_result.hang:
-                result_str += "  Expected test to hang, but it did not\n"
-        except subprocess.TimeoutExpired as err:
-            if not expected_result.hang:
-                result_str += "  Timeout occurred. Did the test hang?\n"
-
-            result = None
-            stdout = err.stdout
-            stderr = err.stderr
-
-        
-        if result:
-            # Check the retcode
-            if expected_result.retcode is not None:
-                if result.returncode != expected_result.retcode:
-                    result_str += f"  Expected return code {expected_result.retcode}, got {result.returncode}\n"
-
-        # Unconditionally check the output
-        for (i, checker) in enumerate(expected_result.checkers):
-            checker_res = False
+        for trial in range(ntrials):
+            result_str = ""
             try:
-                checker_res = checker(stdout, stderr)
-            except:
-                pass
+                result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
+                stdout = result.stdout
+                stderr = result.stderr
+                if expected_result.hang:
+                    result_str += "  Expected test to hang, but it did not\n"
+            except subprocess.TimeoutExpired as err:
+                if not expected_result.hang:
+                    result_str += "  Timeout occurred. Did the test hang?\n"
+
+                result = None
+                stdout = err.stdout
+                stderr = err.stderr
+
             
-            if not checker_res:
-                result_str += f"  Checker {i} failed\n"
+            if result:
+                # Check the retcode
+                if expected_result.retcode is not None:
+                    if result.returncode != expected_result.retcode:
+                        result_str += f"  Expected return code {expected_result.retcode}, got {result.returncode}\n"
+
+            # Unconditionally check the output
+            for (i, checker) in enumerate(expected_result.checkers):
+                checker_res = False
+                try:
+                    checker_res = checker(stdout, stderr)
+                except:
+                    pass
+                
+                if not checker_res:
+                    result_str += f"  Checker {i} failed\n"
 
 
-        if len(result_str) > 0:
-            print(f"[FAIL] {test_name} ({python_file} {c_file})")
-            print(result_str)
-            if debug:
-                if stdout:
-                    print(stdout.decode())
-                if stderr:
-                    print(stderr.decode())
+            if len(result_str) > 0:
+                print(f"[FAIL] {test_name} ({python_file} {c_file})")
+                print(result_str)
+                if debug:
+                    if stdout:
+                        print(stdout.decode())
+                    if stderr:
+                        print(stderr.decode())
 
-            return False
-        else:
-            print(f"[OK] {test_name} ({python_file} {c_file})")
-            return True
+                return False
+            else:
+                print(f"[OK] {test_name} ({python_file} {c_file})")
+
+        return True
 
 
 if __name__ == '__main__':

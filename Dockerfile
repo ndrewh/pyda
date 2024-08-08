@@ -57,8 +57,6 @@ RUN mkdir build && cd build && \
       make -j
 
 ENV PATH=$PATH:/opt/pyda/bin
-
-RUN pip3 install pwntools
 WORKDIR /tmp
 
 RUN git clone https://github.com/pwndbg/pwndbg.git && \

@@ -474,7 +474,8 @@ void pyda_clear_run_until(pyda_thread *t) {
     t->dirty_run_until = 1;
     drvector_set_entry(&t->proc->thread_run_untils, t->tid-1, NULL);
 
-    dr_flush_region((void*)run_until, 1);
+    if (run_until)
+        dr_flush_region((void*)run_until, 1);
 }
 
 int pyda_check_run_until(pyda_process *proc, void *test_pc) {

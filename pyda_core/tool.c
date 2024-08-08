@@ -259,14 +259,17 @@ static void post_syscall_event(void *drcontext, int sysnum) {
 static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
     pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
 
+    DEBUG_PRINTF("signal_event tid=%d: %d\n", t->tid, siginfo->sig);
+
     int sig = siginfo->sig;
 
     // We only care about signals that indicate crashes. We only care if the python thread
     // is still running (We need to have someone to raise the exception to!)
     // Perhaps unexpectedly, we also only care if the process has not blocked the signal.
-    // This prevents us from handling signals when the application has blocked them (e.g.,
-    // because it is holding the GIL. We will still handle them before the app gets them.)
-    if ((sig == SIGSEGV || sig == SIGBUS || sig == SIGILL) && !siginfo->blocked) {
+    // This prevents us from handling signals before the application is ready for them (e.g.,
+    // because it is holding the GIL. We will still handle them before the app gets them,
+    // since dynamorio will call the handler a second time.)
+    if ((sig == SIGSEGV || sig == SIGBUS || sig == SIGILL || sig == SIGABRT) && !siginfo->blocked) {
         if (!t->python_exited) {
             memcpy(&t->cur_context, siginfo->mcontext, sizeof(dr_mcontext_t));
             t->signal = sig;

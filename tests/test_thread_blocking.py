@@ -1,6 +1,7 @@
 from pyda import *
 from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
+from pwnlib.util.fiddling import hexdump
 import string
 import sys, time
 
@@ -9,7 +10,6 @@ p = process()
 e = ELF(p.exe_path)
 e.address = p.maps[p.exe_path].base
 
-plt_map = { e.plt[x]: x for x in e.plt }
 def thread_entry(p):
     print("Thread entry")
     try:

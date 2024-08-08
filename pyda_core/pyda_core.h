@@ -129,6 +129,8 @@ void pyda_hook_rununtil_reached(void *pc);
 int pyda_push_context(pyda_thread *t);
 int pyda_pop_context(pyda_thread *t);
 
+int pyda_get_backtrace (pyda_thread *t, char *buf, int size);
+
 #ifndef PYDA_DYNAMORIO_CLIENT
 
 #define ABORT_IF_NODYNAMORIO {\

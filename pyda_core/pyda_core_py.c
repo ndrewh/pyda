@@ -39,6 +39,7 @@ static PyObject *PydaProcess_set_syscall_pre_hook(PyObject *self, PyObject *args
 static PyObject *PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_push_state(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_pop_state(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_backtrace(PyObject *self, PyObject *noarg);
 
 static PyMethodDef PydaGlobalMethods[] = {
     {"process",  (PyCFunction)pyda_core_process, METH_KEYWORDS | METH_VARARGS,
@@ -174,6 +175,7 @@ static PyMethodDef PydaProcessMethods[] = {
     {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
     {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
     {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
+    {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (string)"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -242,10 +244,16 @@ static int check_exited(pyda_thread *t) {
     }
     return 0;
 }
-static void set_signal_error(pyda_thread *t) {
-    PyObject *tuple = PyTuple_New(1);
-    PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
-    PyErr_SetObject(FatalSignalError, tuple);
+static int check_signal(pyda_thread *t) {
+    if (t->signal) {
+        PyObject *tuple = PyTuple_New(3);
+        PyTuple_SetItem(tuple, 0, PyLong_FromLong(t->signal));
+        PyTuple_SetItem(tuple, 1, PyLong_FromLong(t->tid));
+        PyTuple_SetItem(tuple, 2, PydaProcess_backtrace(NULL, NULL));
+        PyErr_SetObject(FatalSignalError, tuple);
+        return 1;
+    }
+    return 0;
 }
 
 static PyObject *
@@ -261,10 +269,7 @@ PydaProcess_run(PyObject* self, PyObject *noarg) {
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_END_ALLOW_THREADS
 
-    if (t->signal) {
-        set_signal_error(t);
-        return NULL;
-    }
+    if (check_signal(t)) return NULL;
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -293,10 +298,7 @@ PydaProcess_run_until_io(PyObject* self, PyObject *noarg) {
         return NULL;
     }
 
-    if (t->signal) {
-        set_signal_error(t);
-        return NULL;
-    }
+    if (check_signal(t)) return NULL;
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -327,6 +329,17 @@ PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
 }
 
 static PyObject *
+PydaProcess_backtrace(PyObject* self, PyObject *noarg) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+
+    char *s = malloc(4096);
+    pyda_get_backtrace(t, s, 4096);
+    PyObject *ret = PyUnicode_FromString(s);
+    free(s);
+    return ret;
+}
+
+static PyObject *
 PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (check_python_thread(t)) return NULL;
@@ -350,10 +363,7 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
         return NULL;
     }
 
-    if (t->signal) {
-        set_signal_error(t);
-        return NULL;
-    }
+    if (check_signal(t)) return NULL;
 
     Py_INCREF(Py_None);
     return Py_None;

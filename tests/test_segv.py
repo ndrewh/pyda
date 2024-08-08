@@ -15,6 +15,8 @@ try:
 except FatalSignalError as err:
     assert err.args[0] is not None
     excepted = True
+    
+    print(err)
 
 assert excepted
 
@@ -29,6 +31,8 @@ except FatalSignalError as err:
     assert err.args[0] is not None
     excepted = True
 
+    print(err)
+
 assert excepted
 
 print("Exception 2")
@@ -40,6 +44,8 @@ try:
 except FatalSignalError as err:
     assert err.args[0] is not None
     excepted = True
+
+    print(err)
 
 assert excepted
 
