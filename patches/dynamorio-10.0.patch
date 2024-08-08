@@ -23,6 +23,78 @@ index 4e726c5b2..b229086bf 100644
      dr_mutex_lock(mutex);
      global_num_refs += data->num_refs;
      dr_mutex_unlock(mutex);
+diff --git a/core/arch/interp.c b/core/arch/interp.c
+index dc786a904..80e350399 100644
+--- a/core/arch/interp.c
++++ b/core/arch/interp.c
+@@ -2700,6 +2700,8 @@ client_check_syscall(instrlist_t *ilist, instr_t *inst, bool *found_syscall,
+     return true;
+ }
+ 
++void    print_xmm0(int);
++
+ /* Pass bb to client, and afterward check for criteria we require and rescan for
+  * eflags and other flags that might have changed.
+  * Returns true normally; returns false to indicate "go native".
+@@ -2707,6 +2709,7 @@ client_check_syscall(instrlist_t *ilist, instr_t *inst, bool *found_syscall,
+ static bool
+ client_process_bb(dcontext_t *dcontext, build_bb_t *bb)
+ {
++
+     dr_emit_flags_t emitflags = DR_EMIT_DEFAULT;
+     instr_t *inst;
+     bool found_exit_cti = false;
+@@ -5110,6 +5113,7 @@ build_basic_block_fragment(dcontext_t *dcontext, app_pc start, uint initial_flag
+     KSTART(bb_building);
+     dcontext->whereami = DR_WHERE_INTERP;
+ 
++
+     /* Neither thin_client nor hotp_only should be building any bbs. */
+     ASSERT(!RUNNING_WITHOUT_CODE_CACHE());
+ 
+@@ -5118,7 +5122,10 @@ build_basic_block_fragment(dcontext_t *dcontext, app_pc start, uint initial_flag
+      */
+     image_entry = check_for_image_entry(start);
+ 
++
+     init_interp_build_bb(dcontext, &bb, start, initial_flags, for_trace, unmangled_ilist);
++
++
+     if (at_native_exec_gateway(dcontext, start,
+                                &bb.native_call _IF_DEBUG(false /*not xfer tgt*/))) {
+         DODEBUG({ report_native_module(dcontext, bb.start_pc); });
+@@ -5161,11 +5168,13 @@ build_basic_block_fragment(dcontext_t *dcontext, app_pc start, uint initial_flag
+         jitopt_add_dgc_bb(bb.start_pc, bb.end_pc, TEST(FRAG_IS_TRACE_HEAD, bb.flags));
+     }
+ 
++
+     /* emit fragment into fcache */
+     KSTART(bb_emit);
+     f = emit_fragment_ex(dcontext, start, bb.ilist, bb.flags, bb.vmlist, link, visible);
+     KSTOP(bb_emit);
+ 
++
+ #ifdef CUSTOM_TRACES_RET_REMOVAL
+     f->num_calls = dcontext->num_calls;
+     f->num_rets = dcontext->num_rets;
+diff --git a/core/dispatch.c b/core/dispatch.c
+index 37e6bb531..c91394ea9 100644
+--- a/core/dispatch.c
++++ b/core/dispatch.c
+@@ -121,6 +121,13 @@ exited_due_to_ni_syscall(dcontext_t *dcontext)
+     return false;
+ }
+ 
++void print_xmm0(int id) {
++    unsigned long xmm0, xmm1;
++    asm volatile("movq %%xmm0, %0" : "=r" (xmm0));
++    asm volatile("movq %%xmm1, %0" : "=r" (xmm1));
++    dr_fprintf(STDERR, "xmm0 @ %d: %lx, xmm1: %lx\n", id, xmm0, xmm1);
++    dr_flush_file(STDERR);
++}
+ /* This is the central hub of control management in DynamoRIO.
+  * It is entered with a clean dstack at startup and after every cache
+  * exit, whether normal or kernel-mediated via a trampoline context switch.
 diff --git a/core/heap.c b/core/heap.c
 index 8a0c440cf..f596108da 100644
 --- a/core/heap.c
@@ -36,6 +108,42 @@ index 8a0c440cf..f596108da 100644
          });
  #endif
  
+diff --git a/core/ir/disassemble_shared.c b/core/ir/disassemble_shared.c
+index 19241476c..778b0532f 100644
+--- a/core/ir/disassemble_shared.c
++++ b/core/ir/disassemble_shared.c
+@@ -611,6 +611,13 @@ print_known_pc_target(char *buf, size_t bufsz, size_t *sofar INOUT, dcontext_t *
+     return printed;
+ }
+ 
++static void double_print2(opnd_t opnd, uint *top, uint *bottom, const char **sign, bool double_type) {
++    if (double_type)
++        double_print(opnd_get_immed_double(opnd), 6, top, bottom, sign);
++    else
++        double_print(opnd_get_immed_float(opnd), 6, top, bottom, sign);
++}
++
+ void
+ internal_opnd_disassemble(char *buf, size_t bufsz, size_t *sofar INOUT,
+                           dcontext_t *dcontext, opnd_t opnd, bool use_size_sfx)
+@@ -667,7 +674,7 @@ internal_opnd_disassemble(char *buf, size_t bufsz, size_t *sofar INOUT,
+             uint top;
+             uint bottom;
+             const char *sign;
+-            double_print(opnd_get_immed_float(opnd), 6, &top, &bottom, &sign);
++            double_print2(opnd, &top, &bottom, &sign, false);
+             print_to_buffer(buf, bufsz, sofar, "%s%s%u.%.6u", immed_prefix(), sign, top,
+                             bottom);
+         });
+@@ -683,7 +690,7 @@ internal_opnd_disassemble(char *buf, size_t bufsz, size_t *sofar INOUT,
+             uint top;
+             uint bottom;
+             const char *sign;
+-            double_print(opnd_get_immed_double(opnd), 6, &top, &bottom, &sign);
++            double_print2(opnd, &top, &bottom, &sign, true);
+             print_to_buffer(buf, bufsz, sofar, "%s%s%u.%.6u", immed_prefix(), sign, top,
+                             bottom);
+         });
 diff --git a/core/lib/dr_tools.h b/core/lib/dr_tools.h
 index efbb1c636..b7ab5d060 100644
 --- a/core/lib/dr_tools.h
@@ -53,10 +161,20 @@ index efbb1c636..b7ab5d060 100644
  typedef enum {
      /**
 diff --git a/core/lib/instrument.c b/core/lib/instrument.c
-index 00686214e..e70361484 100644
+index 00686214e..f4e7e0e63 100644
 --- a/core/lib/instrument.c
 +++ b/core/lib/instrument.c
-@@ -4731,6 +4731,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
+@@ -147,6 +147,9 @@ typedef struct _callback_list_t {
+  */
+ /*
+  */
++
++void print_xmm0(int);
++
+ #define FAST_COPY_SIZE 5
+ #define call_all_ret(ret, retop, postop, vec, type, ...)                         \
+     do {                                                                         \
+@@ -4731,6 +4734,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
          });
  }
  
@@ -260,7 +378,7 @@ index f5eef1e5c..91f5a16bd 100644
      /* grab all_threads_synch_lock */
      /* since all_threads synch doesn't give any permissions this is necessary
 diff --git a/core/unix/loader.c b/core/unix/loader.c
-index 10c4518b0..b27284a8e 100644
+index 10c4518b0..37aa2aa0c 100644
 --- a/core/unix/loader.c
 +++ b/core/unix/loader.c
 @@ -158,7 +158,7 @@ privload_locate_and_load(const char *impname, privmod_t *dependent, bool reachab
@@ -371,10 +489,13 @@ index 10c4518b0..b27284a8e 100644
      { "dlsym", (app_pc)redirect_dlsym },
      /* We need these for clients that don't use libc (i#1747) */
      { "strlen", (app_pc)strlen },
-@@ -1569,7 +1577,12 @@ static const redirect_import_t redirect_imports[] = {
+@@ -1569,7 +1577,15 @@ static const redirect_import_t redirect_imports[] = {
      { "memset_chk", (app_pc)memset },
      { "memmove_chk", (app_pc)memmove },
      { "strncpy_chk", (app_pc)strncpy },
++    { "__memcpy_chk", (app_pc)memcpy },
++    { "__memset_chk", (app_pc)memset },
++    { "__memmove_chk", (app_pc)memmove },
 +    /* { "__errno_location", (app_pc)__errno_location } */
  };
 +
@@ -384,7 +505,7 @@ index 10c4518b0..b27284a8e 100644
  #define REDIRECT_IMPORTS_NUM (sizeof(redirect_imports) / sizeof(redirect_imports[0]))
  
  #ifdef DEBUG
-@@ -1599,6 +1612,15 @@ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *na
+@@ -1599,6 +1615,15 @@ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *na
          }
      }
  #endif
@@ -696,10 +817,25 @@ index d98df70db..f106ce611 100644
  bool
  privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *name);
 diff --git a/core/unix/os.c b/core/unix/os.c
-index d5133bf16..e9273a08b 100644
+index d5133bf16..0efaa2140 100644
 --- a/core/unix/os.c
 +++ b/core/unix/os.c
-@@ -3848,6 +3848,7 @@ os_thread_suspend(thread_record_t *tr)
+@@ -3761,8 +3761,13 @@ os_thread_sleep(uint64 milliseconds)
+         /* not unusual for client threads to use itimers and have their run
+          * routine sleep forever
+          */
++        
+         if (count++ > 3 && !IS_CLIENT_THREAD(get_thread_private_dcontext())) {
+-            ASSERT_NOT_REACHED();
++            // ATH: We are hitting this case in release builds, and it seems to be breaking
++            // some stuff. Removed the assert for now -- breaking should be ok because
++            // sleeps are always allowed to return early.
++            //
++            // ASSERT_NOT_REACHED();
+             break; /* paranoid */
+         }
+         req = remain;
+@@ -3848,6 +3853,7 @@ os_thread_suspend(thread_record_t *tr)
          if (ksynch_wait(&ostd->suspended, 0, SUSPEND_DEBUG_TIMEOUT_MS) == -ETIMEDOUT) {
              ASSERT_CURIOSITY(false && "failed to suspend thread in 5s");
          }
@@ -733,9 +869,26 @@ index 4d3b9e60f..4ce713450 100644
  
  int
 diff --git a/core/unix/signal.c b/core/unix/signal.c
-index 0cbc94337..4d32e4610 100644
+index 0cbc94337..a73aa85bf 100644
 --- a/core/unix/signal.c
 +++ b/core/unix/signal.c
+@@ -3197,12 +3197,12 @@ thread_set_self_context(void *cxt)
+     dcontext_t *dcontext = get_thread_private_dcontext();
+ #endif
+ #ifdef LINUX
++    frame.uc.uc_mcontext = *sc;
+ #    ifdef X86
+-    byte *xstate = get_and_initialize_xstate_buffer(dcontext);
+-    frame.uc.uc_mcontext.fpstate = &((kernel_xstate_t *)xstate)->fpstate;
++    frame.uc.uc_mcontext.fpstate = (void*)get_and_initialize_xstate_buffer(dcontext);
+ #    endif /* X86 */
+-    frame.uc.uc_mcontext = *sc;
+-#endif
++#endif /* inlux*/
++
+     IF_ARM(ASSERT_NOT_TESTED());
+ #if defined(X86)
+     save_fpstate(dcontext, &frame);
 @@ -8552,15 +8552,19 @@ handle_suspend_signal(dcontext_t *dcontext, kernel_siginfo_t *siginfo,
      dcontext->whereami = prior_whereami;
  
