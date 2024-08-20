@@ -31,7 +31,7 @@ int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
   uc2->uc_mcontext.regs[6] = t->cur_context.r6;
   uc2->uc_mcontext.regs[7] = t->cur_context.r7;
   uc2->uc_mcontext.sp = t->cur_context.sp;
-  uc2->uc_mcontext.lr = t->cur_context.sp;
+  uc2->uc_mcontext.regs[30] = t->cur_context.lr;
 #else
 #error "Unsupported architecture"
 #endif
