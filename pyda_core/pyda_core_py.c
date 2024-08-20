@@ -87,7 +87,7 @@ PyInit_pyda_core(void) {
     register_exception(m, &InvalidStateError, "pyda.InvalidStateError", "InvalidStateError");
     register_exception(m, &FatalSignalError, "pyda.FatalSignalError", "FatalSignalError");
 
-#ifdef X86
+#if defined(X86)
     PyModule_AddIntConstant(m, "REG_RAX", DR_REG_RAX);
     PyModule_AddIntConstant(m, "REG_RBX", DR_REG_RBX);
     PyModule_AddIntConstant(m, "REG_RCX", DR_REG_RCX);
@@ -115,7 +115,13 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "REG_XMM5", DR_REG_XMM5);
     PyModule_AddIntConstant(m, "REG_XMM6", DR_REG_XMM6);
     PyModule_AddIntConstant(m, "REG_XMM7", DR_REG_XMM7);
-#elif ARM64
+    PyModule_AddIntConstant(m, "REG_ARG0", DR_REG_RDI);
+    PyModule_AddIntConstant(m, "REG_ARG1", DR_REG_RSI);
+    PyModule_AddIntConstant(m, "REG_ARG2", DR_REG_RDX);
+    PyModule_AddIntConstant(m, "REG_ARG3", DR_REG_RCX);
+    PyModule_AddIntConstant(m, "REG_ARG4", DR_REG_R8);
+    PyModule_AddIntConstant(m, "REG_ARG5", DR_REG_R9);
+#elif defined(AARCH64)
     PyModule_AddIntConstant(m, "REG_X0", DR_REG_X0);
     PyModule_AddIntConstant(m, "REG_X1", DR_REG_X1);
     PyModule_AddIntConstant(m, "REG_X2", DR_REG_X2);
@@ -149,6 +155,12 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "REG_X30", DR_REG_X30);
     PyModule_AddIntConstant(m, "REG_SP", DR_REG_SP);
     PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC);
+    PyModule_AddIntConstant(m, "REG_ARG0", DR_REG_R0);
+    PyModule_AddIntConstant(m, "REG_ARG1", DR_REG_R1);
+    PyModule_AddIntConstant(m, "REG_ARG2", DR_REG_R2);
+    PyModule_AddIntConstant(m, "REG_ARG3", DR_REG_R3);
+    PyModule_AddIntConstant(m, "REG_ARG4", DR_REG_R4);
+    PyModule_AddIntConstant(m, "REG_ARG5", DR_REG_R5);
 #endif
 
     return m;

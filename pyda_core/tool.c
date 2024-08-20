@@ -220,6 +220,14 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 
     // XXX: I don't think this is safe, since the thread that updates
     // the code cache may not be the executing thread.
+    //
+#if defined(X86)
+    bool save_fpstate = true;
+#elif defined(AARCH64)
+    bool save_fpstate = false;
+#else
+    #error "Unsupported arch"
+#endif
     if (instr_get_app_pc(instr) == t->proc->entrypoint) {
         DEBUG_PRINTF("** Found PC\n");
         dr_insert_clean_call(drcontext, bb, instrlist_first_app(bb), (void *)thread_entrypoint_break,
@@ -227,11 +235,11 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     } else if ((callback = pyda_get_callback(t->proc, instr_get_app_pc(instr)))) {
         DEBUG_PRINTF("installing hook at %p\n", instr_get_app_pc(instr));
         dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_cleancall,
-                         true /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
+                         save_fpstate /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
     } else if (pyda_check_run_until(t->proc, instr_get_app_pc(instr))) {
         DEBUG_PRINTF("installing run_until hook at %p\n", instr_get_app_pc(instr));
         dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_rununtil_reached,
-                         true /* save fpstate */, 1, OPND_CREATE_INTPTR(instr_get_app_pc(instr)));
+                         save_fpstate /* save fpstate */, 1, OPND_CREATE_INTPTR(instr_get_app_pc(instr)));
     }
     return DR_EMIT_DEFAULT;
 }

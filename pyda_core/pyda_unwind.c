@@ -9,6 +9,8 @@ int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
 
   unw_getcontext(&uc);
   ucontext_t *uc2 = (ucontext_t *) &uc;
+
+#if defined(__x86_64__)
   uc2->uc_mcontext.gregs[REG_RIP] = (uintptr_t)t->cur_context.pc;
   uc2->uc_mcontext.gregs[REG_RSP] = t->cur_context.rsp;
   uc2->uc_mcontext.gregs[REG_RBP] = t->cur_context.rbp;
@@ -18,6 +20,21 @@ int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
   uc2->uc_mcontext.gregs[REG_RCX] = t->cur_context.rcx;
   uc2->uc_mcontext.gregs[REG_R8] = t->cur_context.r8;
   uc2->uc_mcontext.gregs[REG_R9] = t->cur_context.r8;
+#elif defined(AARCH64)
+  uc2->uc_mcontext.pc = (uintptr_t)t->cur_context.pc;
+  uc2->uc_mcontext.regs[0] = t->cur_context.r0;
+  uc2->uc_mcontext.regs[1] = t->cur_context.r1;
+  uc2->uc_mcontext.regs[2] = t->cur_context.r2;
+  uc2->uc_mcontext.regs[3] = t->cur_context.r3;
+  uc2->uc_mcontext.regs[4] = t->cur_context.r4;
+  uc2->uc_mcontext.regs[5] = t->cur_context.r5;
+  uc2->uc_mcontext.regs[6] = t->cur_context.r6;
+  uc2->uc_mcontext.regs[7] = t->cur_context.r7;
+  uc2->uc_mcontext.sp = t->cur_context.sp;
+  uc2->uc_mcontext.lr = t->cur_context.sp;
+#else
+#error "Unsupported architecture"
+#endif
 
   unw_init_local(&cursor, &uc);
 
