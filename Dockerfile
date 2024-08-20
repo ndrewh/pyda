@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget python3-pip python3-dev build-essential cmake gdbserver gdb tmux zsh git \
-      cmake g++ g++-multilib doxygen git zlib1g-dev libunwind-dev libsnappy-dev liblz4-dev \
+      cmake g++ doxygen git zlib1g-dev libunwind-dev libsnappy-dev liblz4-dev \
       build-essential gdb lcov pkg-config \
       libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
       libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
