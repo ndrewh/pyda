@@ -11,6 +11,33 @@ index 8a0c440cf..f596108da 100644
          });
  #endif
  
+diff --git a/core/ir/opnd_shared.c b/core/ir/opnd_shared.c
+index 982362e9f..b708d525a 100644
+--- a/core/ir/opnd_shared.c
++++ b/core/ir/opnd_shared.c
+@@ -2187,7 +2187,7 @@ DR_API
+ bool
+ reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, OUT byte *val)
+ {
+-#ifdef X86
++#if defined(X86)
+     if (reg >= DR_REG_START_MMX && reg <= DR_REG_STOP_MMX) {
+         get_mmx_val((uint64 *)val, reg - DR_REG_START_MMX);
+     } else if (reg >= DR_REG_START_XMM && reg <= DR_REG_STOP_XMM) {
+@@ -2210,6 +2210,13 @@ reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, OUT byte *val)
+         reg_t regval = reg_get_value(reg, mc);
+         *(reg_t *)val = regval;
+     }
++#elif defined(AARCH64)
++    if (reg >= DR_REG_Q0 && reg <= DR_REG_Q31) {
++        memcpy(val, &mc->simd[reg - DR_REG_Q0], 16);
++    } else {
++        reg_t regval = reg_get_value(reg, mc);
++        *(reg_t *)val = regval;
++    }
+ #else
+     CLIENT_ASSERT(false, "NYI i#1551");
+ #endif
 diff --git a/core/lib/dr_tools.h b/core/lib/dr_tools.h
 index efbb1c636..b7ab5d060 100644
 --- a/core/lib/dr_tools.h
