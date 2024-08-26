@@ -22,6 +22,7 @@ static redirect_import_t python_redirect_imports[] = {
     { "pthread_detach", (app_pc)pyda_thread_detach },
     { "dlopen", (app_pc)pyda_dlopen },
     { "dlsym", (app_pc)pyda_dlsym },
+    { "getauxval", (app_pc)pyda_getauxval }
 };
 
 #define NUM_NEW_IMPORTS (sizeof(python_redirect_imports) / sizeof(redirect_import_t))

@@ -8,6 +8,7 @@
 #include "privload.h"
 #include "Python.h"
 #include "util.h"
+#include <sys/auxv.h>
 
 // These are used by python as shims to dynamorio-safe pthread functions
 
@@ -163,4 +164,14 @@ int pyda_thread_detach(pthread_t thread) {
     // nop
     DEBUG_PRINTF("pthread_detach %p\n", thread);
     return 0;
+}
+
+
+extern size_t os_minsigstksz(void);
+unsigned long pyda_getauxval(unsigned long type) {
+    DEBUG_PRINTF("getauxval %lx\n", type);
+    if (type == AT_MINSIGSTKSZ) {
+        return os_minsigstksz();
+    }
+    return getauxval(type);
 }

@@ -157,13 +157,37 @@ void thread_exit_event(void *drcontext) {
     pyda_break_noblock(t);
 }
 
+static const char *script_name;
+
+static void get_python_args(int *o_argc, const char ***o_argv) {
+    int argc;
+    const char **argv;
+    dr_get_option_array(pyda_client_id, &argc, &argv);
+
+    if (argc >= 3 && strcmp(argv[1], "-script") == 0) {
+        script_name = argv[2];
+
+        // Shift out the two "-script X" arguments
+        argv[2] = argv[0];
+        argv = &argv[2];
+        argc -= 2;
+
+        DEBUG_PRINTF("Using script from command line: %s\n", script_name);
+    } else {
+        script_name = getenv("PYDA_SCRIPT");
+    }
+
+    *o_argc = argc;
+    *o_argv = argv;
+}
+
 void python_init() {
     static bool is_init = false;
     if (is_init) return;
     is_init = true;
 
     DEBUG_PRINTF("python_init\n");
-    // sleep(5);
+    sleep(5);
     wchar_t *program = Py_DecodeLocale("program_name", NULL);
     if (program == NULL) {
         DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
@@ -182,8 +206,7 @@ void python_init() {
 
     int argc;
     const char **argv;
-    dr_get_option_array(pyda_client_id, &argc, &argv);
-
+    get_python_args(&argc, &argv);
     PyConfig_SetBytesArgv(&config, argc, (char * const *)argv);
     config.parse_argv = 0;
 
@@ -312,10 +335,23 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
 }
 
 static void event_attach_post() {
-    DEBUG_PRINTF("event_attach_post\n");
-    sleep(10);
-    // dr_fprintf(STDERR, "event_attach_post\n");
-    // dr_abort();
+    DEBUG_PRINTF("event_attach_post on tid %d\n", dr_get_thread_id(dr_get_current_drcontext()));
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    DEBUG_PRINTF("[PYDA] New thread %ld\n", t->tid);
+
+    if (t->proc->main_thread != t) {
+        dr_fprintf(STDERR, "[Pyda] ERROR: Dynamorio is not running on the main thread. This is probably a bug.\n");
+        dr_abort();
+    }
+
+    pyda_initial_break(t);
+    DEBUG_PRINTF("entrypoint flush (attach)");
+
+    // XXX: Not clear if this is legal to call here. If it is, we should note that we don't
+    // have to redirect execution, because we aren't actually in translated code yet!
+    pyda_flush_hooks();
+    DEBUG_PRINTF("entrypoint end (attach)");
 }
 
 static void thread_entrypoint_break() {
@@ -358,9 +394,9 @@ void python_main_thread(void *arg) {
 
     DEBUG_PRINTF("Running script...\n");
 
-    const char *script_name = getenv("PYDA_SCRIPT");
     if (!script_name) {
-        fprintf(stderr, "[Pyda] Error: PYDA_SCRIPT not set\n");
+        fprintf(stderr, "[Pyda] Error: Script not specified\n");
+        goto python_exit;
     }
 
     FILE *f = fopen(script_name, "r");

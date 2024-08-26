@@ -213,6 +213,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->python_blocked_on_io = 0;
     thread->run_until = 0;
     thread->signal = 0;
+    thread->dirty_run_until = 0;
     drvector_init(&thread->context_stack, 0, true, free_context);
 
     drvector_append(&proc->threads, thread);

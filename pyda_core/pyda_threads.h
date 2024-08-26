@@ -20,3 +20,4 @@ int pyda_thread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*st
 int pyda_thread_detach(pthread_t thread);
 
 void* python_thread_init(void *pyda_thread);
+unsigned long pyda_getauxval(unsigned long type);
