@@ -1,7 +1,12 @@
 from pwnlib.tubes.tube import tube
+from pwnlib.context import context
+from pwnlib import term
+import sys
 import os
 import pyda_core
 import errno
+import threading
+import select
 
 # todo
 class ProcessTube(tube):
@@ -18,6 +23,11 @@ class ProcessTube(tube):
 
         self._stdin_fd = stdin_fd
         self._stdout_fd = stdout_fd
+
+        # real_stdin is what is connected to the user's terminal.
+        # used for p.interactive() (note: sys.stdin may be buffered
+        # even if PYTHONUNBUFFERED)
+        self._real_stdin = os.fdopen(sys.stdin.fileno(), 'rb', 0)
 
     # Overwritten for better usability
     def recvall(self, timeout = None):
@@ -139,5 +149,96 @@ class ProcessTube(tube):
     def shutdown_raw(self, direction):
         pass
     
-    def interactive(self):
-        self.error("interactive() is not currently supported.")
+    # This code is taken from pwnlib.tubes
+    def interactive(self, prompt=term.text.bold_red('$') + ' '):
+        if not self._captured:
+            raise RuntimeError("I/O must be explicitly captured using process(io=True)")
+
+        self.info('Switching to interactive mode')
+
+        go = threading.Event()
+        def send_thread():
+            from pwnlib.args import term_mode
+            os_linesep = os.linesep.encode()
+            to_skip = b''
+            while not go.is_set():
+                if term.term_mode:
+                    # note: this case is not tested
+                    data = term.readline.readline(prompt = prompt, float = True)
+                    if data.endswith(b'\n') and self.newline != b'\n':
+                        data = data[:-1] + self.newline
+                else:
+                    stdin = self._real_stdin
+                    while True:
+                        can_read = select.select([stdin], [], [], 0.1) == ([stdin], [], [])
+                        if can_read:
+                            data = stdin.read(1)
+                            break
+                        elif go.is_set():
+                            data = b''
+                            break
+
+                    # Keep OS's line separator if NOTERM is set and
+                    # the user did not specify a custom newline
+                    # even if stdin is a tty.
+                    if sys.stdin.isatty() and (
+                        term_mode
+                        or context.newline != b"\n"
+                        or self._newline is not None
+                    ):
+                        if to_skip:
+                            if to_skip[:1] != data:
+                                data = os_linesep[: -len(to_skip)] + data
+                            else:
+                                to_skip = to_skip[1:]
+                                if to_skip:
+                                    continue
+                                data = self.newline
+                        # If we observe a prefix of the line separator in a tty,
+                        # assume we'll see the rest of it immediately after.
+                        # This could stall until the next character is seen if
+                        # the line separator is started but never finished, but
+                        # that is unlikely to happen in a dynamic tty.
+                        elif data and os_linesep.startswith(data):
+                            if len(os_linesep) > 1:
+                                to_skip = os_linesep[1:]
+                                continue
+                            data = self.newline
+                    else:
+                        raise RuntimeError("interactive() called not attached to TTY")
+
+                if data:
+                    try:
+                        self.send(data)
+                    except EOFError:
+                        go.set()
+                        self.info('Got EOF while sending in interactive')
+                else:
+                    go.set()
+
+        t = context.Thread(target=send_thread)
+        t.daemon = True
+        t.start()
+
+        # Recv thread -- must be main thread
+        while not go.is_set():
+            try:
+                cur = self.recv(timeout = 0.05)
+                cur = cur.replace(self.newline, b'\n')
+                if cur:
+                    stdout = sys.stdout
+                    if not term.term_mode:
+                        stdout = getattr(stdout, 'buffer', stdout)
+                    stdout.write(cur)
+                    stdout.flush()
+            except EOFError:
+                self.info('Got EOF while reading in interactive')
+                go.set()
+                break
+            except KeyboardInterrupt:
+                self.info('Interrupted')
+                go.set()
+                break
+
+        while t.is_alive():
+            t.join(timeout = 0.1)
