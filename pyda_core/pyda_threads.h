@@ -1,3 +1,4 @@
+#include <pthread.h>
 extern int g_pyda_tls_idx;
 extern int g_pyda_tls_is_python_thread_idx;
 int pyda_thread_setspecific(pthread_key_t key, void *val);
@@ -15,3 +16,7 @@ int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);
 void* pyda_dlopen(const char *filename, int flag);
 void* pyda_dlsym(void *handle, const char *symbol);
 void* pyda_thread_self();
+int pyda_thread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
+int pyda_thread_detach(pthread_t thread);
+
+void* python_thread_init(void *pyda_thread);

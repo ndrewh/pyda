@@ -1,10 +1,12 @@
+// We use this so that we have dr_set_tls_field
+#define STATIC_DRMGR_ONLY
+#include "pyda_threads.h"
 
 #include "dr_api.h"
 #include "dr_tools.h"
 #include "drmgr.h"
 #include "privload.h"
 #include "Python.h"
-#include <pthread.h>
 #include "util.h"
 
 // These are used by python as shims to dynamorio-safe pthread functions
@@ -104,12 +106,61 @@ int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
     return res;
 }
 
-int pyda_thread_self() {
+void* pyda_thread_self() {
     // XXX: We *could* try to return our pyda-specific tid -- but there
     // are technically two threads with that tid!! (Python and App).
     // If we returned the same ID for two python threads,
     // it seems likely it would break things.
     //
     // Instead, we are just going to return the dynamorio thread id
-    return dr_get_thread_id(dr_get_current_drcontext());
+    return (void*)(uintptr_t)dr_get_thread_id(dr_get_current_drcontext());
+}
+
+extern void __ctype_init();
+void* python_thread_init(void *pyda_thread) {
+    __ctype_init();
+
+    void *drcontext = dr_get_current_drcontext();
+    void *tls = dr_thread_alloc(drcontext, sizeof(void*) * 130);
+    memset(tls, 0, sizeof(void*) * 130);
+    dr_set_tls_field(drcontext, (void *)tls);
+
+    dr_client_thread_set_suspendable(false);
+    pyda_thread_setspecific(g_pyda_tls_idx, (void*)pyda_thread);
+    pyda_thread_setspecific(g_pyda_tls_is_python_thread_idx, (void*)1);
+    return tls;
+}
+
+struct thread_start {
+    void *(*start_routine) (void *);
+    void *arg;
+    // void *pyda_thread;
+};
+
+static void client_thread_init(void *arg) {
+    struct thread_start *ts = (struct thread_start*)arg;
+    void *tls = python_thread_init(NULL);
+    ts->start_routine(ts->arg);
+    DEBUG_PRINTF("start_routine returned\n");
+    dr_client_thread_set_suspendable(true);
+    dr_thread_free(dr_get_current_drcontext(), tls, sizeof(void*) * 130);
+    dr_global_free(ts, sizeof(struct thread_start));
+}
+
+int pyda_thread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg) {
+    DEBUG_PRINTF("pthread_create %p %p %p %p\n", thread, attr, start_routine, arg);
+
+    struct thread_start *ts = dr_global_alloc(sizeof(struct thread_start));
+    ts->start_routine = start_routine;
+    ts->arg = arg;
+    // ts->pyda_thread = pyda_thread_getspecific(g_pyda_tls_idx);
+    dr_create_client_thread(client_thread_init, ts);
+    *thread = (pthread_t)0x13371337;
+    return 0;
+}
+
+int pyda_thread_detach(pthread_t thread) {
+    // nop
+    DEBUG_PRINTF("pthread_detach %p\n", thread);
+    return 0;
 }

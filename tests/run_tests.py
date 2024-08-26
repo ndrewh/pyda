@@ -215,6 +215,15 @@ TESTS = [
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
+
+    ("test_python_threading", "simple.c", "test_python_threading.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():

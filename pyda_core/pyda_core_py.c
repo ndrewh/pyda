@@ -241,6 +241,14 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     return (PyObject*)result;
 }
 
+static int check_valid_thread(pyda_thread *t) {
+    if (!t) {
+        PyErr_SetString(PyExc_RuntimeError, "Threads created with Python threading APIs cannot use Pyda APIs");
+        return 1;
+    }
+    return 0;
+}
+
 static int check_python_thread(pyda_thread *t) {
     if (pyda_thread_getspecific(g_pyda_tls_is_python_thread_idx) != (void*)1) {
         PyErr_SetString(InvalidStateError, ".run()/.run_until() cannot be called from hooks.");
@@ -250,6 +258,7 @@ static int check_python_thread(pyda_thread *t) {
 }
 
 static int check_exited(pyda_thread *t) {
+    if (check_valid_thread(t)) return 1;
     if (t->app_exited) {
         PyErr_SetString(InvalidStateError, "Thread has already exited; cannot be resumed");
         return 1;
@@ -343,6 +352,7 @@ PydaProcess_capture_io(PyObject* self, PyObject *noarg) {
 static PyObject *
 PydaProcess_backtrace(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
 
     char *s = malloc(4096);
     pyda_get_backtrace(t, s, 4096);
@@ -384,6 +394,7 @@ PydaProcess_run_until_pc(PyObject* self, PyObject *args) {
 static PyObject *
 PydaProcess_exited(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
     if (t->app_exited) {
         Py_INCREF(Py_True);
         return Py_True;
@@ -412,7 +423,9 @@ pyda_list_modules(PyObject* self, PyObject *noarg) {
 static PyObject *
 pyda_get_current_thread_id(PyObject* self, PyObject *noarg) {
 #ifdef PYDA_DYNAMORIO_CLIENT
-    int tid = ((pyda_thread*)pyda_thread_getspecific(g_pyda_tls_idx))->tid;
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
+    int tid = t->tid;
     return PyLong_FromLong(tid);
 #endif // PYDA_DYNAMORIO_CLIENT
 
@@ -430,6 +443,7 @@ static PyObject *
 PydaProcess_get_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
 
     unsigned long long reg_id;
 
@@ -488,6 +502,7 @@ static PyObject *
 PydaProcess_set_register(PyObject *self, PyObject *args) {
     PydaProcess *p = (PydaProcess*)self;
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_exited(t)) return NULL;
 
     unsigned long long reg_id;
     PyObject *val;

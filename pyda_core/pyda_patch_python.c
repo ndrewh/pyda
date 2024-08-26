@@ -18,6 +18,8 @@ static redirect_import_t python_redirect_imports[] = {
     { "pthread_cond_signal", (app_pc)pyda_cond_signal },
     { "pthread_mutex_init", (app_pc)pyda_mutex_init },
     { "pthread_self", (app_pc)pyda_thread_self },
+    { "pthread_create", (app_pc)pyda_thread_create },
+    { "pthread_detach", (app_pc)pyda_thread_detach },
     { "dlopen", (app_pc)pyda_dlopen },
     { "dlsym", (app_pc)pyda_dlsym },
 };

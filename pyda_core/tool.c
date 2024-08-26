@@ -36,6 +36,7 @@ static bool filter_syscall_event(void *drcontext, int sysnum);
 static bool pre_syscall_event(void *drcontext, int sysnum);
 static void post_syscall_event(void *drcontext, int sysnum);
 static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo);
+static void event_attach_post(void);
 
 
 extern int is_dynamorio_running;
@@ -81,6 +82,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     drmgr_register_pre_syscall_event(pre_syscall_event);
     drmgr_register_post_syscall_event(post_syscall_event);
     dr_register_filter_syscall_event(filter_syscall_event);
+    dr_register_post_attach_event(event_attach_post);
 
     drmgr_register_signal_event(signal_event);
 
@@ -309,6 +311,13 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
     return DR_SIGNAL_DELIVER;
 }
 
+static void event_attach_post() {
+    DEBUG_PRINTF("event_attach_post\n");
+    sleep(10);
+    // dr_fprintf(STDERR, "event_attach_post\n");
+    // dr_abort();
+}
+
 static void thread_entrypoint_break() {
     DEBUG_PRINTF("entrypoint (break)\n");
 
@@ -334,20 +343,6 @@ static void thread_entrypoint_break() {
 }
 
 void drmgr_thread_init_event(void*);
-
-static void* python_thread_init(pyda_thread *t) {
-    __ctype_init();
-
-    void *drcontext = dr_get_current_drcontext();
-    void *tls = dr_thread_alloc(drcontext, sizeof(void*) * 130);
-    memset(tls, 0, sizeof(void*) * 130);
-    dr_set_tls_field(drcontext, (void *)tls);
-
-    dr_client_thread_set_suspendable(false);
-    pyda_thread_setspecific(g_pyda_tls_idx, (void*)t);
-    pyda_thread_setspecific(g_pyda_tls_is_python_thread_idx, (void*)1);
-    return tls;
-}
 
 void python_main_thread(void *arg) {
     pyda_thread *t = arg;
