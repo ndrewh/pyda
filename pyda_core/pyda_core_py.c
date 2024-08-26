@@ -559,9 +559,16 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("register_hook: %llx\n", addr);
-#endif // PYDA_DYNAMORIO_CLIENT
+    if (!dr_memory_is_readable((app_pc)addr, 1)) {
+        char buf[100];
+        snprintf(buf, sizeof(buf), "Hooked PC %" PRIxPTR " is invalid.", (uintptr_t)addr);
+        PyErr_SetString(PyExc_RuntimeError, buf);
+        return NULL;
+    }
+
     pyda_add_hook(p->main_thread->proc, addr, callback);
 
+#endif // PYDA_DYNAMORIO_CLIENT
     Py_INCREF(Py_None);
     return Py_None;
 }

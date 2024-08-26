@@ -224,6 +224,14 @@ TESTS = [
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
+
+    ("err_invalidhook", "simple.c", "err_invalidhook.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            lambda o, e: e.count(b"RuntimeError: Hooked PC 1337133713371337 is invalid.") == 1,
+        ]
+    )),
 ]
 
 def main():
