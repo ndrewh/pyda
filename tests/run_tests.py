@@ -232,6 +232,15 @@ TESTS = [
             lambda o, e: e.count(b"RuntimeError: Hooked PC 1337133713371337 is invalid.") == 1,
         ]
     )),
+
+    ("test_pwntools", "simple.c", "test_pwntools.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():
