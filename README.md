@@ -1,12 +1,11 @@
 Pyda
 ====
 
-Pyda lets you write simple *dynamic* binary analysis tools using Python.
+Pyda lets you write dynamic binary analysis tools using Python.
 
-Pyda combines [Dynamorio](https://dynamorio.org)-based instrumentation with a CPython interpreter, allowing you to ***write hooks
-in Python*** that directly manipulate registers/memory in the target, without
+Pyda combines [Dynamorio](https://dynamorio.org)-based instrumentation with a CPython interpreter, allowing you to
+"inject" Python code into any x86/ARM64 Linux process, without
 going through GDB or ptrace.
-
 
 Features:
 - **Hooks**: Inspect and modify registers
@@ -28,7 +27,8 @@ Pyda is a...
 to inspect/modify registers and memory. Several packages (e.g. pwntools) can be used
 to look up symbols or parse DWARF info.
 - **Reverse engineering tool**: Answer questions like "Where do all these indirect jumps go?" in just a few lines of Python.
-
+- **CTF Tool**: We provide a pwntools-style API for I/O (a Pyda `Process` is actually a pwntools `tube`!), and
+new "blocking" APIs like `p.run_until(pc)` which allow you to interleave execution and I/O.
 
 #### Quickstart
 
