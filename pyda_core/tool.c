@@ -187,7 +187,7 @@ void python_init() {
     is_init = true;
 
     DEBUG_PRINTF("python_init\n");
-    sleep(5);
+    /* sleep(5); */
     wchar_t *program = Py_DecodeLocale("program_name", NULL);
     if (program == NULL) {
         DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
