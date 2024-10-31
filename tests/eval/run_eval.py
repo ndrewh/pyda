@@ -43,6 +43,30 @@ TESTS = [
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
+    ("test_malloc_1000", "malloc1000.c", "malloccount_pyda.py", "malloccount_libdebug.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+    ("test_malloc_100000", "malloc100000.c", "malloccount_pyda.py", "malloccount_libdebug.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
+    ("test_malloc_1000000", "malloc1000000.c", "malloccount_pyda.py", "malloccount_libdebug.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():
@@ -70,13 +94,14 @@ def main():
 
 def run_pyda(c_exe_path, pyda_script_path, env, expected_result, test_name, debug):
     def run():
-        return subprocess.run(f"pyda {pyda_script_path.resolve()} -- {c_exe_path.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
+        cmd = f"pyda {pyda_script_path.resolve()} -- {c_exe_path.resolve()}"
+        return subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL, shell=True, timeout=60, capture_output=True)
 
     return run_tool(run, test_name, expected_result, debug)
 
 def run_libdebug(c_exe_path, libdebug_script_path, env, expected_result, test_name, debug):
     def run():
-        return subprocess.run(f"python3 {libdebug_script_path.resolve()} {c_exe_path.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
+        return subprocess.run(f"python3 {libdebug_script_path.resolve()} {c_exe_path.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=60, capture_output=True)
 
     return run_tool(run, test_name, expected_result, debug)
 

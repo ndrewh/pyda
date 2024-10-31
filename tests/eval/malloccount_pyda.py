@@ -14,7 +14,6 @@ def malloc_counter(p):
     global counter
     counter += 1
 
-
 p.hook(e.plt["malloc"], malloc_counter)
 p.run()
 

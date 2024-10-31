@@ -5,7 +5,7 @@ import sys
 
 bin_path = Path(sys.argv[1])
 d = debugger(str(bin_path.resolve()))
-d.run()
+r = d.run()
 
 e = ELF(bin_path)
 
@@ -16,6 +16,7 @@ def malloc_counter(t, bp):
 
 d.breakpoint(e.plt["malloc"], callback=malloc_counter, file=bin_path.name)
 d.cont()
+d.wait()
 
 print(f"malloc count: {counter}")
 print("pass")
