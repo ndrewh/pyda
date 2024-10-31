@@ -85,6 +85,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     dr_register_post_attach_event(event_attach_post);
 
     drmgr_register_signal_event(signal_event);
+    dr_request_synchronized_exit();
 
     pthread_cond_init(&python_thread_init1, 0);
 
@@ -155,6 +156,7 @@ void thread_exit_event(void *drcontext) {
     t->app_exited = 1;
 
     pyda_break_noblock(t);
+    /* dr_fprintf(STDERR, "pyda_break\n"); */
 }
 
 static const char *script_name;
@@ -311,7 +313,7 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
             // since we are throwing.
             if (t->run_until)
                 pyda_clear_run_until(t);
-            
+
             // Raise an exception in Python +
             // Wait for Python to yield back to us
             pyda_break(t);
@@ -388,20 +390,20 @@ void python_main_thread(void *arg) {
     python_init();
 
     if (!PyGILState_Check()) {
-        fprintf(stderr, "[Pyda] Error: GIL expected\n");
+        dr_fprintf(STDERR, "[Pyda] Error: GIL expected\n");
         dr_abort();
     }
 
     DEBUG_PRINTF("Running script...\n");
 
     if (!script_name) {
-        fprintf(stderr, "[Pyda] Error: Script not specified\n");
+        dr_fprintf(STDERR, "[Pyda] Error: Script not specified\n");
         goto python_exit;
     }
 
     FILE *f = fopen(script_name, "r");
     if (!f) {
-        fprintf(stderr, "[Pyda] Error: could not open %s\n", script_name);
+        dr_fprintf(STDERR, "[Pyda] Error: could not open %s\n", script_name);
         goto python_exit;
     }
 
@@ -412,6 +414,7 @@ void python_main_thread(void *arg) {
 
     if (PyRun_SimpleFile(f, script_name) == -1) {
         // python exception
+        dr_fprintf(STDERR, "[Pyda] Script raised exception, see above.\n");
     }
 
     fclose(f);
