@@ -44,7 +44,7 @@ class ProcessTube(tube):
 
         if self.closed["recv"]:
             raise EOFError
-        
+
         if len(a) > 0:
             raise NotImplementedError("recv_raw() with flags not implemented")
 
@@ -148,7 +148,7 @@ class ProcessTube(tube):
 
     def shutdown_raw(self, direction):
         pass
-    
+
     # This code is taken from pwnlib.tubes
     def interactive(self, prompt=term.text.bold_red('$') + ' '):
         if not self._captured:

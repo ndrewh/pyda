@@ -19,7 +19,7 @@ def process(**kwargs):
         INIT = True
         if "pwndbg" in sys.modules:
             pwndbg_compat.patch_pwndbg(sys.modules["pwndbg"], proc)
-    
+
     return proc
 
 def xinfo(addr):

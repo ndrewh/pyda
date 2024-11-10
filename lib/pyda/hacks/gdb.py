@@ -61,21 +61,21 @@ class Type:
         self.sz = sz
         self.signed = signed
         self.float = float
-    
+
     def pointer(self):
         return Pointer(self)
-    
+
     @property
     def sizeof(self):
         return self.sz
-    
+
     @property
     def alignof(self):
         return self.sz
-    
+
     def array(self, n):
         return Array(self, n)
-    
+
     def __eq__(self, other):
         if not isinstance(other, Type):
             return False
@@ -90,7 +90,7 @@ class Pointer(Type):
     def __init__(self, t):
         super().__init__(8, False)
         self._points_to = t
-    
+
     def __eq__(self, other):
         if not isinstance(other, Pointer):
             return False
@@ -102,13 +102,13 @@ class Array(Type):
         super().__init__(t.sz * n, t.signed)
         self._points_to = t
         self._n = n
-    
+
     def __eq__(self, other):
         if not isinstance(other, Array):
             return False
 
         return self._points_to == other._points_to and self._n == other._n
-    
+
     def target(self):
         return self._points_to
 
@@ -116,12 +116,12 @@ class Value:
     def __init__(self, v):
         self.v = v
         self.type = Type(0, False)
-    
+
     def cast(self, t):
         v = Value(self.v)
         v.type = t
         return v
-    
+
     def __int__(self):
         assert not isinstance(self.type, Array)
         assert not self.type.float
@@ -131,7 +131,7 @@ class Value:
             return int.from_bytes(self.v, pyda.arch.endianness())
         else:
             raise NotImplementedError(f"Value: {self.v}")
-    
+
     def __getitem__(self, idx):
         assert isinstance(self.type, Array), f"type: {self.type.__class__} {Array}"
         assert type(self.v) is bytes
@@ -157,7 +157,7 @@ class Breakpoint():
 class error(BaseException):
     def __init__(self, s):
         self.s = s
-    
+
     def __str__(self):
         return self.s
 
@@ -210,7 +210,7 @@ events.register_changed = EventRegistry()
 class Thread():
     def __init__(self, tid):
         self.tid = tid
-    
+
     @property
     def global_num(self):
         return self.tid

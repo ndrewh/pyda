@@ -20,17 +20,17 @@ class Process(ProcessTube):
         self._registered_syscall_pre_hook = False
         self._registered_syscall_post_hook = False
         self._has_run = False
-    
+
     def _hook_dispatch(self, addr):
         for h in self._hooks[addr]:
             h(self)
-    
+
     def _syscall_pre_hook_dispatch(self, syscall_num):
         if syscall_num in self._syscall_pre_hooks:
             results = []
             for h in self._syscall_pre_hooks[syscall_num]:
                 results.append(h(self, syscall_num))
-            
+
             if False in results and True in results:
                 raise RuntimeError("Cannot have mixed return values from syscall pre-hooks")
             elif False in results:
@@ -51,14 +51,14 @@ class Process(ProcessTube):
             self._hooks[addr] = [callback]
         else:
             self._hooks[addr].append(callback)
-    
+
     def unhook(self, addr, callback=None):
         self._hooks[addr] = [c for c in self._hooks[addr] if c != callback]
 
         if callback is None or len(self._hooks[addr]) == 0:
             del self._hooks[addr]
             self._p.unregister_hook(addr)
-    
+
     def hook_after_call(self, addr, callback):
         def call_hook(p):
             retaddr = int.from_bytes(p.read(p.regs.rsp, 8), "little")
@@ -69,7 +69,7 @@ class Process(ProcessTube):
             self.hook(retaddr, after_call_hook)
 
         self.hook(addr, call_hook)
-    
+
     def syscall_pre(self, syscall_num, callback):
         if self._has_run:
             raise RuntimeError("Cannot add syscall hooks after process has started")
@@ -95,16 +95,16 @@ class Process(ProcessTube):
             self._syscall_post_hooks[syscall_num] = [callback]
         else:
             self._syscall_post_hooks[syscall_num].append(callback)
-    
+
     def set_thread_entry(self, callback):
         self._p.set_thread_init_hook(lambda p: callback(self))
-    
+
     def read(self, addr, size):
         return self._p.read(addr, size)
 
     def write(self, addr, data):
         return self._p.write(addr, data)
-    
+
     def __getattr__(self, name):
         # TODO: Move these into CPython extension?
         if name == "regs":
@@ -117,13 +117,13 @@ class Process(ProcessTube):
             return self._p.get_main_module()
 
         raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
-    
+
     def __setattr__(self, name, value):
         if not name.startswith("_") and name not in ["timeout", "buffer", "closed"]:
             raise AttributeError(f"Cannot set attribute '{name}'")
-        
+
         super().__setattr__(name, value)
-    
+
     def run(self):
         self._has_run = True
         self._p.run()
@@ -131,19 +131,19 @@ class Process(ProcessTube):
     def run_until(self, addr):
         self._has_run = True
         self._p.run_until_pc(addr)
-    
-    
+
+
     @property
     def tid(self):
         # This returns the thread id of the currently executing thread
         return pyda_core.get_current_thread_id()
-    
+
     # Jumps to "start" and runs until "end" is reached
     # NOTE: This cannot be used from hooks
     def run_from_to(self, start, end):
         self.regs.rip = start
         self.run_until(end)
-    
+
     # Returns a function that calls into (instrumented) target code
     # NOTE: This cannot be used from hooks
     def callable(self, addr):
@@ -186,7 +186,7 @@ class Process(ProcessTube):
                 self._p.pop_state()
 
         return call
-    
+
 def set_regs_for_call_linux_x86(p, args):
     if len(args) > 6:
         raise NotImplementedError(">6 args not supported yet")
@@ -220,9 +220,9 @@ class ProcessRegisters():
 
         if val is not None:
             return val
-        
+
         raise AttributeError(f"Invalid register name '{name}'")
-    
+
     def __setitem__(self, name, value):
         reg_id = getattr(pyda_core, "REG_"+name.upper(), None)
         if reg_id:
@@ -232,7 +232,7 @@ class ProcessRegisters():
 
     def __getattr__(self, name):
         return self[name]
-    
+
     def __setattr__(self, name, value):
         if name != "_p":
             self[name] = value
@@ -250,7 +250,7 @@ class ProcessMemory():
             step = key.step
             if step is not None and step != 1:
                 raise ValueError("ProcessMemory: Step must be 1")
-            
+
             if stop is not None:
                 return self._p.read(start, stop - start)
             else:
@@ -261,11 +261,11 @@ class ProcessMemory():
 class ProcessMaps():
     def __init__(self, p):
         self._p = p
-    
+
     def __getitem__(self, key):
         return Map(vaddr=pyda_core.get_base(key), size=0, path=key, perms=None)
 
-        
+
 @dataclass
 class Map:
     vaddr: int
@@ -284,17 +284,17 @@ class Map:
     @property
     def end(self):
         return self.base + self.size
-    
+
     @property
     def executable(self):
         return self.perms & 1
-    
+
     @property
     def writable(self):
         return self.perms & 2
-    
+
     @property
     def readable(self):
         return self.perms & 4
-    
+
 
