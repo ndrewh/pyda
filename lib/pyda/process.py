@@ -63,7 +63,7 @@ class Process(ProcessTube):
         def call_hook(p):
             retaddr = int.from_bytes(p.read(p.regs.rsp, 8), "little")
             def after_call_hook(p):
-                print(f"after call to {hex(addr)}")
+                # print(f"after call to {hex(addr)}")
                 callback(p)
                 self.unhook(retaddr, after_call_hook)
             self.hook(retaddr, after_call_hook)
