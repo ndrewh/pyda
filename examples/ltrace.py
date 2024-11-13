@@ -28,10 +28,10 @@ def guess_arg(x):
 def lib_hook(p):
     name = plt_map[p.regs.pc]
     print(f"{name}(" + ", ".join([
-        f"rdi={guess_arg(p.regs.arg0)}",
-        f"rsi={guess_arg(p.regs.arg1)}",
-        f"rdx={guess_arg(p.regs.arg2)}",
-        f"rcx={guess_arg(p.regs.arg3)}",
+        f"rdi={guess_arg(p.regs.arg1)}",
+        f"rsi={guess_arg(p.regs.arg2)}",
+        f"rdx={guess_arg(p.regs.arg3)}",
+        f"rcx={guess_arg(p.regs.arg4)}",
     ]) + ")")
 
 for x in e.plt:
