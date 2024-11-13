@@ -83,7 +83,7 @@ extern file_t our_stderr;
 void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
     if (use_pty) {
         int master, slave;
-        
+
         if (openpty(&master, &slave, NULL, NULL, NULL)) {
             // Failed to open TTY
             DEBUG_PRINTF("Failed to open TTY err %s\n", strerror(errno));
@@ -113,7 +113,7 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
             }
         }
     }
-    
+
     if (!use_pty) { // We were asked not to use a pty, or pty init failed
         int pipe1[2], pipe2[2], pipe3[2];
         if (pipe(pipe1) || pipe(pipe2) || pipe(pipe3)) {
@@ -233,17 +233,17 @@ void pyda_process_destroy(pyda_process *p) {
     DEBUG_PRINTF("pyda_process_destroy\n");
     if (p->thread_init_hook)
         Py_DECREF(p->thread_init_hook);
-    
+
     p->thread_init_hook = NULL;
 
     if (p->syscall_pre_hook)
         Py_DECREF(p->syscall_pre_hook);
-    
+
     p->syscall_pre_hook = NULL;
 
     if (p->syscall_post_hook)
         Py_DECREF(p->syscall_post_hook);
-    
+
     p->syscall_post_hook = NULL;
 
     hashtable_delete(&p->callbacks);
@@ -625,7 +625,7 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
         t->errored = 1;
         PyErr_Print();
         dr_fprintf(STDERR, "\n");
-    } else if (is_pre && PyBool_Check(result)) { 
+    } else if (is_pre && PyBool_Check(result)) {
         // Should run
         should_run = PyObject_IsTrue(result);
         DEBUG_PRINTF("syscall pre_hook returned %d\n", should_run);
@@ -653,7 +653,7 @@ void pyda_hook_rununtil_reached(void *pc) {
 
         // Clear the run_until flag and flush the block
         pyda_clear_run_until(t);
-        
+
         // Wait for Python to yield back to us
         pyda_break(t);
         thread_prepare_for_python_return(NULL, t, pc); // MAY NOT RETURN

@@ -216,7 +216,7 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     static char *kwlist[] = {"name", NULL};
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s*", kwlist, &bin_path))
         return NULL;
-    
+
     *(char*)(bin_path.buf + bin_path.len) = '\0';
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
@@ -234,7 +234,7 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     result = PyObject_NEW(PydaProcess, &PydaProcess_Type);
     if (result != NULL)
         result->main_thread = t;
-    
+
     t->proc->py_obj = (PyObject*)result;
 
     PyBuffer_Release(&bin_path);
@@ -673,9 +673,9 @@ PydaProcess_get_main_module(PyObject *self, PyObject *args) {
 
     if (!PyArg_ParseTuple(args, ""))
         return NULL;
-    
+
     PyObject *result = NULL;
-    
+
 #ifdef PYDA_DYNAMORIO_CLIENT
     module_data_t *mod = dr_get_main_module();
 
@@ -703,11 +703,11 @@ pyda_get_base(PyObject *self, PyObject *args) {
 
     if (!PyArg_ParseTuple(args, "s*", &bin_path))
         return NULL;
-    
+
     *(char*)(bin_path.buf + bin_path.len) = '\0';
 
     PyObject *result = NULL;
-    
+
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_module_iterator_t *iter = dr_module_iterator_start();
     while (dr_module_iterator_hasnext(iter)) {
@@ -737,9 +737,9 @@ pyda_get_module_for_addr(PyObject *self, PyObject *args) {
     unsigned long addr;
     if (!PyArg_ParseTuple(args, "K", &addr))
         return NULL;
-    
+
     PyObject *result = NULL;
-    
+
 #ifdef PYDA_DYNAMORIO_CLIENT
     unsigned char *base;
     size_t size;

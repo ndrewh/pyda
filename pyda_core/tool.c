@@ -53,7 +53,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
 {
     dr_set_client_name("Pyda",
                        "https://github.com/ndrewh/pyda");
-    
+
     pyda_client_id = id;
 
     /* Options */
@@ -78,7 +78,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     drmgr_register_bb_instrumentation_event(event_analysis,
                                             event_insert,
                                             NULL);
-    
+
     drmgr_register_pre_syscall_event(pre_syscall_event);
     drmgr_register_post_syscall_event(post_syscall_event);
     dr_register_filter_syscall_event(filter_syscall_event);
