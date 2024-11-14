@@ -573,7 +573,7 @@ void pyda_hook_cleancall(pyda_hook *cb) {
 
     // If this also happens to be the run_until target for this thread,
     // we deal with that here (instead of inserting two hooks)
-    if (cb->addr == pyda_get_run_until(t)) {
+    if (!t->python_exited && cb->addr == pyda_get_run_until(t)) {
         // It is UB to modify PC in a hook that is also the run_until target
         if (t->rip_updated_in_python) {
             dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook updated RIP, but run_until target is hit. This is UB. Continuing.");
@@ -642,7 +642,7 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
 
 void pyda_hook_rununtil_reached(void *pc) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    if (t->errored) return;
+    if (t->errored || t->python_exited) return;
     if (t->skip_next_hook) {
         t->skip_next_hook = 0;
         return;

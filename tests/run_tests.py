@@ -241,6 +241,14 @@ TESTS = [
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
+
+    ("test_fork", "test_fork.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+        ]
+    )),
 ]
 
 def main():

@@ -36,6 +36,7 @@ static bool filter_syscall_event(void *drcontext, int sysnum);
 static bool pre_syscall_event(void *drcontext, int sysnum);
 static void post_syscall_event(void *drcontext, int sysnum);
 static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo);
+static void fork_event(void *drcontext);
 static void event_attach_post(void);
 
 
@@ -85,6 +86,7 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     dr_register_post_attach_event(event_attach_post);
 
     drmgr_register_signal_event(signal_event);
+    dr_register_fork_init_event(fork_event);
     dr_request_synchronized_exit();
 
     pthread_cond_init(&python_thread_init1, 0);
@@ -341,6 +343,33 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
     }
 
     return DR_SIGNAL_DELIVER;
+}
+static void fork_event(void *drcontext) {
+    // This is called on the NEW fork, which doesn't have any parallel Python threads anymore.
+    // TODO: How do we make sure that important locks aren't held at fork time when we have multiple threads?
+    pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
+    DEBUG_PRINTF("[Pyda] fork_init\n");
+
+    pyda_process *p = t->proc;
+
+    // Flush deleted hooks
+    drvector_lock(&p->threads);
+    for (int i=0; i<p->threads.entries; i++) {
+        dr_flush_file(STDERR);
+        if (p->threads.array[i] != t) pyda_thread_destroy(p->threads.array[i]);
+    }
+    p->threads.entries = 1;
+    p->threads.array[0] = t;
+    drvector_unlock(&p->threads);
+
+    // For now, we just mark the current thread as exited, which just means we won't
+    // try to yield to it in signal handlers or if we reach the last run_until hook.
+    //
+    // In the future, we could setup a new parallel Python thread that enters some
+    // "fork handler" as the entrypoint or whatever
+
+    t->python_exited = 1;
+    p->main_thread = t;
 }
 
 static void event_attach_post() {
