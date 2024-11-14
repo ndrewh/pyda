@@ -247,6 +247,7 @@ TESTS = [
         checkers=[
             output_checker,
             no_warnings_or_errors,
+            lambda o, e: o.count(b"child status 0") == 1,
         ]
     )),
 ]
