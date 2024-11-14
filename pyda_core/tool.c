@@ -318,16 +318,23 @@ static dr_signal_action_t signal_event(void *drcontext, dr_siginfo_t *siginfo) {
             // Wait for Python to yield back to us
             pyda_break(t);
 
-            // Flushing is actually allowed in signal event handlers.
-            // This updates run_until handlers, updated hooks, etc.
-            pyda_flush_hooks();
+            if (!t->python_exited) {
+                // Flushing is actually allowed in signal event handlers.
+                // This updates run_until handlers, updated hooks, etc.
+                pyda_flush_hooks();
 
-            // Copy the state back to the siginfo
-            memcpy(siginfo->mcontext, &t->cur_context, sizeof(dr_mcontext_t));
+                // Copy the state back to the siginfo
+                memcpy(siginfo->mcontext, &t->cur_context, sizeof(dr_mcontext_t));
 
-            t->signal = 0;
+                t->signal = 0;
 
-            return DR_SIGNAL_REDIRECT;
+                return DR_SIGNAL_REDIRECT;
+            }
+            //
+            // If Python exited (e.g. by not catching the FatalSignalError), we allow this
+            // to fall through and deliver the signal anyway
+            //
+            dr_fprintf(STDERR, "[Pyda] Script did not handle FatalSignalError. Delivering signal %d.\n", sig);
         } else {
             dr_fprintf(STDERR, "[Pyda] ERROR: Signal %d received after Python exited/died. Add p.run() to receive the signal as an exception.\n", sig);
         }
