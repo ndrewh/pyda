@@ -1,4 +1,4 @@
-from collections import namedtuple
+from collections import namedtuple, deque
 from dataclasses import dataclass
 import ctypes
 from .tube import ProcessTube
@@ -43,17 +43,22 @@ class Process(ProcessTube):
             for h in self._syscall_post_hooks[syscall_num]:
                 h(self, syscall_num)
 
-    def hook(self, addr, callback):
+    def hook(self, addr, callback, priority=False):
         if addr not in self._hooks:
             hook_wrapper = lambda p: self._hook_dispatch(addr)
             self._p.register_hook(addr, hook_wrapper)
 
-            self._hooks[addr] = [callback]
+            self._hooks[addr] = deque([callback])
         else:
-            self._hooks[addr].append(callback)
+            if priority:
+                self._hooks[addr].appendleft(callback)
+            else:
+                self._hooks[addr].append(callback)
 
     def unhook(self, addr, callback=None):
-        self._hooks[addr] = [c for c in self._hooks[addr] if c != callback]
+        # TODO: Maybe replace this with some kind of hook disabling mechanism
+        # (perhaps optimize for hook_after_call use)
+        self._hooks[addr] = deque([c for c in self._hooks[addr] if c != callback])
 
         if callback is None or len(self._hooks[addr]) == 0:
             del self._hooks[addr]
@@ -68,7 +73,7 @@ class Process(ProcessTube):
                 self.unhook(retaddr, after_call_hook)
             self.hook(retaddr, after_call_hook)
 
-        self.hook(addr, call_hook)
+        self.hook(addr, call_hook, priority=True)
 
     def syscall_pre(self, syscall_num, callback):
         if self._has_run:
