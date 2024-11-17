@@ -1,4 +1,4 @@
 #!/bin/bash
 
 ROOT=$(dirname "$0")/../
-LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PYTHONHOME/lib/ PYDA_SCRIPT=$1 exec $DYNAMORIO_HOME/bin64/drrun -stack_size 1024K -c $ROOT/build/pyda_core/libtool.so ${@:2}
+ASAN_OPTIONS=detect_leaks=0 LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PYTHONHOME/lib/ PYDA_SCRIPT=$1 exec $DYNAMORIO_HOME/bin64/drrun -stack_size 1024K -c $ROOT/build/pyda_core/libtool.so ${@:2}
