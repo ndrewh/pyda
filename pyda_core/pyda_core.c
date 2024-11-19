@@ -558,6 +558,11 @@ void pyda_hook_cleancall(pyda_hook *cb) {
 
     if (result == NULL) {
         dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook call failed. Skipping future hooks on thread %d\n", t->tid);
+        if (getenv("PYDA_ABORT_ON_ERROR") && getenv("PYDA_ABORT_ON_ERROR")[0] == '1') {
+            dr_fprintf(STDERR, "\n[Pyda] ABORTING (will crash now)\n");
+            *(int*)(1) = 1;
+        }
+
         dr_flush_file(STDERR);
         t->errored = 1;
         PyErr_Print();
