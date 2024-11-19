@@ -55,12 +55,12 @@ class Process(ProcessTube):
             else:
                 self._hooks[addr].append(callback)
 
-    def unhook(self, addr, callback=None):
+    def unhook(self, addr, callback=None, unregister=True):
         # TODO: Maybe replace this with some kind of hook disabling mechanism
         # (perhaps optimize for hook_after_call use)
         self._hooks[addr] = deque([c for c in self._hooks[addr] if c != callback])
 
-        if callback is None or len(self._hooks[addr]) == 0:
+        if (callback is None or len(self._hooks[addr]) == 0) and unregister:
             del self._hooks[addr]
             self._p.unregister_hook(addr)
 
@@ -70,7 +70,7 @@ class Process(ProcessTube):
             def after_call_hook(p):
                 # print(f"after call to {hex(addr)}")
                 callback(p)
-                self.unhook(retaddr, after_call_hook)
+                self.unhook(retaddr, after_call_hook, unregister=False)
             self.hook(retaddr, after_call_hook)
 
         self.hook(addr, call_hook, priority=True)
