@@ -175,3 +175,49 @@ unsigned long pyda_getauxval(unsigned long type) {
     }
     return getauxval(type);
 }
+
+int pyda_attach_mode;
+
+extern const char *our_getenv(const char *name);
+const char *pyda_getenv(const char *name) {
+    if (pyda_attach_mode) {
+        // Dynamorio does not have the correct ENV in attach mode.
+        DEBUG_PRINTF("getenv2 %s=%s\n", name, getenv(name));
+        return getenv(name);
+    } else {
+        DEBUG_PRINTF("getenv %s=%s\n", name, our_getenv(name));
+        return our_getenv(name);
+    }
+}
+
+void parse_proc_environ() {
+    FILE *f = fopen("/proc/self/environ", "r");
+    if (!f) {
+        DEBUG_PRINTF("Failed to open /proc/self/environ\n");
+        return;
+    }
+
+    // /proc/self/environ is a NULL-separated list of strings
+    // each of the form KEY=VALUE
+
+    // We store the new environment in attach_env
+    // and we will use that in the attach mode.
+
+    char buf[4096];
+    size_t len = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+
+    if (len == sizeof(buf)) {
+        DEBUG_PRINTF("Warning: /proc/self/environ too large\n");
+    }
+
+    char *key = buf;
+    while (key < buf + len) {
+        char *k = strtok(key, "=");
+        char *v = key + strlen(k) + 1;
+        // DEBUG_PRINTF("setenv %s=%s\n", k, v);
+        setenv(k, v, 0);
+        key = v + strlen(v) + 1;
+    }
+
+}

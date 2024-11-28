@@ -743,6 +743,18 @@ index d5133bf16..106d0672a 100644
          if (ksynch_get_value(&ostd->suspended) == 0) {
              /* If it still has to wait, give up the cpu. */
              os_thread_yield();
+diff --git a/core/unix/os_exports.h b/core/unix/os_exports.h
+index c234c265c..304819704 100644
+--- a/core/unix/os_exports.h
++++ b/core/unix/os_exports.h
+@@ -299,6 +299,7 @@ dynamorio_set_envp(char **envp);
+ /* drinjectlib wants the libc version while the core wants the private version */
+ #    define getenv our_getenv
+ #endif
++DR_API
+ char *
+ our_getenv(const char *name);
+ 
 diff --git a/core/unix/rseq_linux.c b/core/unix/rseq_linux.c
 index 4d3b9e60f..4ce713450 100644
 --- a/core/unix/rseq_linux.c

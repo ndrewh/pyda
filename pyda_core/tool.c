@@ -41,6 +41,7 @@ static void event_attach_post(void);
 
 
 extern int is_dynamorio_running;
+extern int pyda_attach_mode;
 
 pthread_cond_t python_thread_init1;
 pthread_cond_t python_thread_init2;
@@ -373,6 +374,9 @@ static void fork_event(void *drcontext) {
 }
 
 static void event_attach_post() {
+    pyda_attach_mode = 1;
+    parse_proc_environ();
+
     DEBUG_PRINTF("event_attach_post on tid %d\n", dr_get_thread_id(dr_get_current_drcontext()));
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);

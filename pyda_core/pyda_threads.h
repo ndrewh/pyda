@@ -21,3 +21,6 @@ int pyda_thread_detach(pthread_t thread);
 
 void* python_thread_init(void *pyda_thread);
 unsigned long pyda_getauxval(unsigned long type);
+const char *pyda_getenv(const char *name);
+
+void parse_proc_environ(void);
