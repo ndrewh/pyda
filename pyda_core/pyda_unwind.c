@@ -3,7 +3,11 @@
 #include <libunwind.h>
 #include <sys/ucontext.h>
 
-int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
+static void free_bt_entry(void *ptr) {
+    dr_global_free(ptr, sizeof(struct pyda_bt_entry));
+}
+
+int pyda_get_backtrace (pyda_thread *t, drvector_t *res) {
   unw_cursor_t cursor; unw_context_t uc;
   unw_word_t ip, sp;
 
@@ -38,16 +42,19 @@ int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
 
   unw_init_local(&cursor, &uc);
 
-  char *bufcur = buf;
+  drvector_init(res, 0, true, free_bt_entry);
+
   do {
-    char sym[256];
+    struct pyda_bt_entry *e = dr_global_alloc(sizeof(struct pyda_bt_entry));
+
+    char sym[512];
     unw_word_t offset;
 
     unw_get_reg(&cursor, UNW_REG_IP, &ip);
     unw_get_reg(&cursor, UNW_REG_SP, &sp);
 
     module_data_t *mod = dr_lookup_module((void*)ip);
-    int res;
+
     if (mod) {
         char *modname = strrchr(mod->full_path, '/');
         if (modname) {
@@ -56,27 +63,25 @@ int pyda_get_backtrace (pyda_thread *t, char *buf, int size) {
             modname = mod->full_path;
         }
 
-        res = snprintf(bufcur, size, "[%s+0x%lx]\t", modname, (uint64_t)ip - (uint64_t)mod->start);
+        snprintf(e->modname, sizeof(e->modname), "%s", modname);
+        e->offset = (uint64_t)ip - (uint64_t)mod->start;
     } else {
-        res = snprintf(bufcur, size, "\t");
-    }
-
-    if (res > 0 && res <= size) {
-        bufcur += res;
-        size -= res;
+        e->modname[0] = 0;
+        e->offset = 0;
     }
 
     if (unw_get_proc_name(&cursor, sym, sizeof(sym), &offset) == 0) {
-        res = snprintf(bufcur, size,"(%s+0x%lx)\tip = %lx, sp = %lx\n", sym, offset, (uint64_t) ip, (uint64_t) sp);
+        snprintf(e->sym_name, sizeof(e->sym_name), "%s", sym);
     } else {
-        res = snprintf(bufcur, size, "\t\tip = %lx, sp = %lx\n", (uint64_t) ip, (uint64_t) sp);
+        e->sym_name[0] = 0;
     }
 
-    if (res > 0 && res <= size) {
-        bufcur += res;
-        size -= res;
-    }
+    e->ip = ip;
+    e->sp = sp;
+
+    drvector_append(res, e);
   } while (unw_step(&cursor) > 0);
 
   return 0;
 }
+

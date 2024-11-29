@@ -1,6 +1,6 @@
 import pyda_core
 from pyda_core import MemoryError, ThreadExitError, InvalidStateError, FatalSignalError
-from .process import Process, Map
+from .process import Process, Map, backtrace_to_str
 from . import arch
 import sys, os
 
@@ -31,7 +31,7 @@ def xinfo(addr):
     path, start, end, perms = res
     return Map(path=path, vaddr=start, size=end - start, perms=perms)
 
-FatalSignalError.__str__ = lambda self: f"Signal {self.args[0]} on Thread {self.args[1]}\nBacktrace:\n{self.args[2]}"
+FatalSignalError.__str__ = lambda self: f"Signal {self.args[0]} on Thread {self.args[1]}\nBacktrace:\n{backtrace_to_str(self.args[2])}"
 
 def exit(*args, **kwargs):
     raise RuntimeError("exit")

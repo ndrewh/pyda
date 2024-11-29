@@ -1,8 +1,10 @@
 from collections import namedtuple, deque
 from dataclasses import dataclass
 import ctypes
+import ctypes.util
 from .tube import ProcessTube
 import pyda_core
+import sys
 
 class Process(ProcessTube):
     def __init__(self, handle, io=False):
@@ -191,6 +193,63 @@ class Process(ProcessTube):
                 self._p.pop_state()
 
         return call
+
+    def backtrace(self):
+        return backtrace_to_str(self._p.backtrace())
+
+    def backtrace_cpp(self, short=False):
+        return backtrace_to_str(self._p.backtrace(), demangle=True, short=short)
+
+def find_any_library(*choices: str) -> str:
+    for choice in choices:
+        lib = ctypes.util.find_library(choice)
+        if lib is not None:
+            return lib
+    raise LibraryNotFound('Cannot find any of libraries: {}'.format(choices))
+
+try:
+    libcxx = find_any_library("stdc++", "c++")
+    libcxx = ctypes.CDLL(libcxx)  # On Linux
+    cxa_demangle = getattr(libcxx, '__cxa_demangle')
+    cxa_demangle.restype = ctypes.c_void_p
+except LibraryNotFound:
+    libcxx = None
+
+def cxx_demangle(s):
+    mangled_name_p = ctypes.c_char_p(s.encode('utf-8'))
+    status = ctypes.c_int()
+    retval = cxa_demangle(mangled_name_p, None, None, ctypes.pointer(status))
+
+    res = None
+    if status.value == 0:
+        try:
+            res = ctypes.c_char_p(retval).value.decode('utf-8')
+        finally:
+            pyda_core.free(retval)
+
+    return res
+
+def backtrace_to_str(bt, demangle=False, short=False):
+    if demangle:
+        if "cxxfilt" not in sys.modules:
+            import cxxfilt
+
+        cxxfilt = sys.modules["cxxfilt"]
+
+    s = ""
+    for f in bt:
+        if demangle and f[3].startswith("_Z"):
+            sym = cxx_demangle(f[3])
+            if short and len(sym) > 100:
+                sym = "..." + sym[-100:]
+
+            s += f"[{f[1]}+{hex(f[2])}] {sym}\n"
+        elif f[2] != 0:
+            s += f"[{f[1]}+{hex(f[2])}] {f[3]}\n"
+        else:
+            s += f"[ip={hex(f[0])}]\n"
+
+    return s
 
 def set_regs_for_call_linux_x86(p, args):
     if len(args) > 6:

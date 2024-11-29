@@ -9,11 +9,10 @@
 #include <internal/pycore_condvar.h>
 #undef Py_BUILD_CORE
 
-#ifdef PYDA_DYNAMORIO_CLIENT
 #include <dr_api.h>
 #include "hashtable.h"
 #include "drvector.h"
-#endif
+
 
 extern int is_dynamorio_running;
 typedef struct pyda_hook_s pyda_hook;
@@ -87,6 +86,15 @@ struct pyda_thread_s {
 #endif
 };
 
+struct pyda_bt_entry {
+    char modname[128];
+    uint64_t offset;
+    char sym_name[512];
+    uint64_t ip;
+    uint64_t sp;
+};
+
+
 pyda_process* pyda_mk_process();
 pyda_thread* pyda_mk_thread(pyda_process*);
 
@@ -129,7 +137,7 @@ void pyda_hook_rununtil_reached(void *pc);
 int pyda_push_context(pyda_thread *t);
 int pyda_pop_context(pyda_thread *t);
 
-int pyda_get_backtrace (pyda_thread *t, char *buf, int size);
+int pyda_get_backtrace (pyda_thread *t, drvector_t *res);
 
 #ifndef PYDA_DYNAMORIO_CLIENT
 

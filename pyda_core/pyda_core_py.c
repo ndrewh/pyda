@@ -15,6 +15,7 @@ typedef struct {
 } PydaProcess;
 
 static PyObject* pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject* pyda_core_free(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *pyda_list_modules(PyObject *self, PyObject *noarg);
 static PyObject *pyda_get_base(PyObject *self, PyObject *args);
 static PyObject *pyda_get_module_for_addr(PyObject *self, PyObject *args);
@@ -52,6 +53,8 @@ static PyMethodDef PydaGlobalMethods[] = {
      "Get module info for addr"},
     {"get_current_thread_id",  (PyCFunction)pyda_get_current_thread_id, METH_NOARGS,
      "Get current thread id, numbered from 1"},
+    {"free",  (PyCFunction)pyda_core_free, METH_KEYWORDS | METH_VARARGS,
+     "Call into the allocator used by the rest of the tool."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -187,7 +190,7 @@ static PyMethodDef PydaProcessMethods[] = {
     {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
     {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
     {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
-    {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (string)"},
+    {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (array of tuples)"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -239,6 +242,18 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
 
     PyBuffer_Release(&bin_path);
     return (PyObject*)result;
+}
+
+static PyObject *
+pyda_core_free(PyObject *self, PyObject *args, PyObject *kwargs) {
+    unsigned long addr;
+    if (!PyArg_ParseTuple(args, "K", &addr))
+        return NULL;
+
+    free((void*)addr);
+
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 static int check_valid_thread(pyda_thread *t) {
@@ -354,11 +369,31 @@ PydaProcess_backtrace(PyObject* self, PyObject *noarg) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (check_exited(t)) return NULL;
 
-    char *s = malloc(4096);
-    pyda_get_backtrace(t, s, 4096);
-    PyObject *ret = PyUnicode_FromString(s);
-    free(s);
-    return ret;
+    drvector_t backtrace;
+
+    int ret = pyda_get_backtrace(t, &backtrace);
+
+    PyObject *list = PyList_New(0);
+    for (int i=0; i<backtrace.entries; i++) {
+        struct pyda_bt_entry *e = backtrace.array[i];
+
+        PyObject *tuple = PyTuple_New(4);
+        PyTuple_SetItem(tuple, 0, PyLong_FromLong(e->ip));
+        PyTuple_SetItem(tuple, 1, PyUnicode_FromString(e->modname));
+        PyTuple_SetItem(tuple, 2, PyLong_FromLong(e->offset));
+        PyTuple_SetItem(tuple, 3, PyUnicode_FromString(e->sym_name));
+        PyList_Append(list, tuple);
+    }
+
+    drvector_delete(&backtrace);
+
+    if (ret) {
+        Py_DECREF(list);
+        PyErr_SetString(PyExc_RuntimeError, "Could not generate backtrace");
+        return NULL;
+    }
+
+    return list;
 }
 
 static PyObject *
