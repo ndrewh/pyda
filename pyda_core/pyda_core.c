@@ -323,7 +323,7 @@ void pyda_break(pyda_thread *t) {
     // Hack to tell dynamorio that dr_flush_region on another thread is OK
     // here -- this is not REALLY safe per the docs but we use
     // dr_redirect_execution so we *should* always return to a valid fragment...
-    dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
+    // dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
 
     // here we wait for the python to signal
     pthread_mutex_lock(&t->mutex);
@@ -332,7 +332,7 @@ void pyda_break(pyda_thread *t) {
     while (!t->python_yielded)
         pthread_cond_wait(&t->resume_cond, &t->mutex);
 
-    dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
+    // dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
 
     t->python_yielded = 0;
     pthread_mutex_unlock(&t->mutex);
@@ -507,13 +507,14 @@ int pyda_check_run_until(pyda_process *proc, void *test_pc) {
 
 static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc) {
     if (gstate) {
-        // HACK: This is not allowed per the docs. We get away with this
-        // because we check later to see if any flushes occurred during this period
+        // HACK: dr_mark_safe_to_suspend is not allowed in a cleancall, per the docs.
+        // We sortof get away with this because we check later to see if any flushes
+        // occurred during this period, and force a dr_redirect_execution if they did.
         t->flush_ts = t->proc->flush_count;
 
-        dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
+        // dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
         *gstate = PyGILState_Ensure();
-        dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
+        // dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
     }
 
     void *drcontext = dr_get_current_drcontext();

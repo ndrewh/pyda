@@ -141,6 +141,7 @@ static void client_thread_init(void *arg) {
     void *tls = python_thread_init(NULL);
     ts->start_routine(ts->arg);
     DEBUG_PRINTF("start_routine returned\n");
+    dr_client_thread_set_suspendable(true);
     dr_thread_free(dr_get_current_drcontext(), tls, sizeof(void*) * 130);
     dr_global_free(ts, sizeof(struct thread_start));
 }

@@ -50,16 +50,16 @@ TESTS = [
     )),
 
     # tests whether we can handle a large number of threads that do not get waited on
-    # ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
-    #     retcode=0,
-    #     checkers=[
-    #         output_checker,
-    #         no_warnings_or_errors,
-    #         lambda o, e: o.count(b"malloc") > 15000,
-    #         lambda o, e: o.count(b"free") > 15000,
-    #         lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
-    #     ]
-    # )),
+    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"malloc") > 15000,
+            lambda o, e: o.count(b"free") > 15000,
+            lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
+        ]
+    )),
 
     # hook throws an exception
     ("err_hook_throw", "thread_1000.c", "err_hook.py", RunOpts(), ExpectedResult(
@@ -317,6 +317,8 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, n
         env = os.environ.copy()
         if run_opts.no_pty:
             env["PYDA_NO_PTY"] = "1"
+
+        env["TERM"] = "linux"
 
         for trial in range(ntrials):
             result_str = ""

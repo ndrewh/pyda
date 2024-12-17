@@ -530,6 +530,8 @@ void python_aux_thread(void *arg) {
 
     PyGILState_Release(gstate);
 
+    dr_client_thread_set_suspendable(true);
+
     DEBUG_PRINTF("python_aux_thread 4\n");
 
     t->python_exited = 1;
