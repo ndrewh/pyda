@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import os
+import os, time
 
 from argparse import ArgumentParser
 
@@ -19,6 +19,7 @@ class ExpectedResult:
 @dataclass
 class RunOpts:
     no_pty: bool = False
+    attach: bool = False
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
@@ -252,6 +253,27 @@ TESTS = [
             lambda o, e: o.count(b"child status 0") == 1,
         ]
     )),
+
+    ("test_attach", "test_longrunning.c", "../examples/ltrace_multithreaded.py", RunOpts(attach=True), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"[thread 1] sleep") in range(5, 12),
+        ]
+    )),
+
+    ("test_attach_multithread", "test_longrunning_multithread.c", "../examples/ltrace_multithreaded.py", RunOpts(attach=True), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pthread_join") in [9, 10], # first call may happen before attach
+            lambda o, e: o.count(b"snprintf") == 10,
+            lambda o, e: all((o.count(f"[thread {i}] gettimeofday".encode('utf-8')) in range(5, 12) for i in range(2, 12))),
+            lambda o, e: all((o.count(f"thread_entry for {i}".encode('utf-8')) == 1 for i in range(2, 12))),
+        ]
+    )),
 ]
 
 def main():
@@ -277,6 +299,7 @@ def main():
     if not res:
         exit(1)
 
+TIMEOUT = 15
 def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, ntrials):
     # Compile to temporary directory
     with TemporaryDirectory() as tmpdir:
@@ -298,9 +321,19 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, n
         for trial in range(ntrials):
             result_str = ""
             try:
-                result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=15, capture_output=True)
-                stdout = result.stdout
-                stderr = result.stderr
+                if not run_opts.attach:
+                    result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=TIMEOUT, capture_output=True)
+                    stdout = result.stdout
+                    stderr = result.stderr
+                else:
+                    # Attach mode: Launch the process and then attach to it
+                    proc = subprocess.Popen([c_exe.resolve()], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    time.sleep(0.5)
+                    result = subprocess.Popen(f"pyda-attach {p_path.resolve()} {proc.pid}", env=env, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+
+                    stdout, stderr = proc.communicate(timeout=TIMEOUT)
+                    result.wait(timeout=TIMEOUT)
+
                 if expected_result.hang:
                     result_str += "  Expected test to hang, but it did not\n"
             except subprocess.TimeoutExpired as err:
