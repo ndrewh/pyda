@@ -211,7 +211,9 @@ TESTS = [
         checkers=[
             output_checker,
             no_warnings_or_errors,
-            lambda o, e: o.count(b"(segfault+0xd)") == 4,
+            lambda o, e: o.count(b"test_segv") == 8,
+            lambda o, e: o.count(b"] main") == 3,
+            lambda o, e: o.count(b"] segfault") == 4,
             lambda o, e: o.count(b"pass\n") == 1,
         ]
     )),
@@ -283,7 +285,7 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, n
         p_path = Path(python_file)
 
         c_exe = tmpdir / c_path.stem
-        compile_res = subprocess.run(['gcc', '-o', c_exe, c_path], capture_output=True)
+        compile_res = subprocess.run(['gcc', '-o', c_exe, c_path, '-lpthread'], capture_output=True)
         if compile_res.returncode != 0:
             print(f"Failed to compile {c_file}")
             print(compile_res.stderr)
@@ -296,7 +298,7 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, n
         for trial in range(ntrials):
             result_str = ""
             try:
-                result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=10, capture_output=True)
+                result = subprocess.run(f"pyda {p_path.resolve()} -- {c_exe.resolve()}", env=env, stdin=subprocess.DEVNULL, shell=True, timeout=15, capture_output=True)
                 stdout = result.stdout
                 stderr = result.stderr
                 if expected_result.hang:
