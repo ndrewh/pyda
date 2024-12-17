@@ -57,9 +57,7 @@ int pyda_cond_init(pthread_cond_t *condvar, const pthread_condattr_t *attr) {
 }
 int pyda_cond_timedwait(pthread_cond_t *condvar, pthread_mutex_t *mutex, const struct timespec *abstime) {
     // DEBUG_PRINTF("pthread_cond_timedwait %p %p ids %d\n", condvar, mutex, getpid());
-    // dr_set_safe_for_sync(false);
     int result = pthread_cond_timedwait(condvar, mutex, abstime);
-    // dr_set_safe_for_sync(true);
     return result;
 }
 int pyda_cond_signal(pthread_cond_t *condvar) {
@@ -143,7 +141,6 @@ static void client_thread_init(void *arg) {
     void *tls = python_thread_init(NULL);
     ts->start_routine(ts->arg);
     DEBUG_PRINTF("start_routine returned\n");
-    dr_client_thread_set_suspendable(true);
     dr_thread_free(dr_get_current_drcontext(), tls, sizeof(void*) * 130);
     dr_global_free(ts, sizeof(struct thread_start));
 }
@@ -180,7 +177,7 @@ int pyda_attach_mode;
 
 extern const char *our_getenv(const char *name);
 const char *pyda_getenv(const char *name) {
-    if (pyda_attach_mode) {
+    if (pyda_attach_mode || true) {
         // Dynamorio does not have the correct ENV in attach mode.
         DEBUG_PRINTF("getenv2 %s=%s\n", name, getenv(name));
         return getenv(name);
@@ -215,7 +212,7 @@ void parse_proc_environ() {
     while (key < buf + len) {
         char *k = strtok(key, "=");
         char *v = key + strlen(k) + 1;
-        // DEBUG_PRINTF("setenv %s=%s\n", k, v);
+        DEBUG_PRINTF("setenv %s=%s\n", k, v);
         setenv(k, v, 0);
         key = v + strlen(v) + 1;
     }

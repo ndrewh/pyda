@@ -34,10 +34,9 @@ pyda_process* pyda_mk_process() {
 
     pyda_process *proc = dr_global_alloc(sizeof(pyda_process));
     proc->refcount = 0; // xxx: will be incremented to 1 by first pyda_mk_thread
-    proc->dirty_hooks = 0;
+    proc->flush_count = 0;
     drvector_init(&proc->threads, 0, true, NULL);
     drvector_init(&proc->thread_run_untils, 0, true, NULL);
-    drvector_init(&proc->hook_delete_queue, 0, true, NULL);
 
     proc->main_thread = pyda_mk_thread(proc);
     hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, free_hook, NULL, NULL);
@@ -214,7 +213,10 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     thread->run_until = 0;
     thread->signal = 0;
     thread->dirty_run_until = 0;
+    thread->flush_ts = proc->flush_count;
+
     drvector_init(&thread->context_stack, 0, true, free_context);
+    drvector_init(&thread->hook_update_queue, 0, true, NULL);
 
     drvector_append(&proc->threads, thread);
     drvector_append(&proc->thread_run_untils, NULL);
@@ -285,7 +287,7 @@ void pyda_thread_destroy_last(pyda_thread *t) {
 void pyda_yield_noblock(pyda_thread *t) {
     t->python_yielded = 1;
     pthread_mutex_lock(&t->mutex);
-    pthread_cond_signal(&t->resume_cond);
+    pthread_cond_broadcast(&t->resume_cond);
     pthread_mutex_unlock(&t->mutex);
 }
 
@@ -295,10 +297,9 @@ void pyda_yield(pyda_thread *t) {
     t->yield_count++;
 
     // here we wait for the executable to signal
-    // dr_set_safe_for_sync(false);
 
     pthread_mutex_lock(&t->mutex);
-    pthread_cond_signal(&t->resume_cond);
+    pthread_cond_broadcast(&t->resume_cond);
 
     while (!t->app_yielded)
         pthread_cond_wait(&t->break_cond, &t->mutex);
@@ -306,13 +307,12 @@ void pyda_yield(pyda_thread *t) {
     t->app_yielded = 0;
     pthread_mutex_unlock(&t->mutex);
 
-    // dr_set_safe_for_sync(true);
 }
 
 void pyda_break_noblock(pyda_thread *t) {
     t->app_yielded = 1;
     pthread_mutex_lock(&t->mutex);
-    pthread_cond_signal(&t->break_cond);
+    pthread_cond_broadcast(&t->break_cond);
     pthread_mutex_unlock(&t->mutex);
 }
 
@@ -320,29 +320,31 @@ void pyda_break_noblock(pyda_thread *t) {
 void pyda_break(pyda_thread *t) {
     t->app_yielded = 1;
 
-    // here we wait for the python to signal
-    // dr_set_safe_for_sync(false);
+    // Hack to tell dynamorio that dr_flush_region on another thread is OK
+    // here -- this is not REALLY safe per the docs but we use
+    // dr_redirect_execution so we *should* always return to a valid fragment...
+    dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
 
+    // here we wait for the python to signal
     pthread_mutex_lock(&t->mutex);
-    pthread_cond_signal(&t->break_cond);
+    pthread_cond_broadcast(&t->break_cond);
 
     while (!t->python_yielded)
         pthread_cond_wait(&t->resume_cond, &t->mutex);
 
+    dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
+
     t->python_yielded = 0;
     pthread_mutex_unlock(&t->mutex);
-    // dr_set_safe_for_sync(true);
 }
 
 void pyda_initial_break(pyda_thread *t) {
     // lock is already held
-    // dr_set_safe_for_sync(false);
     while (!t->python_yielded)
         pthread_cond_wait(&t->resume_cond, &t->mutex);
 
     t->python_yielded = 0;
     pthread_mutex_unlock(&t->mutex);
-    // dr_set_safe_for_sync(true);
 }
 
 PyObject *pyda_run_until(pyda_thread *proc, uint64_t addr) {
@@ -350,12 +352,12 @@ PyObject *pyda_run_until(pyda_thread *proc, uint64_t addr) {
     return NULL;
 }
 
-void pyda_add_hook(pyda_process *t, uint64_t addr, PyObject *callback) {
+void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback) {
     pyda_hook *cb = dr_global_alloc(sizeof(pyda_hook));
     cb->py_func = callback;
 
     Py_INCREF(callback);
-    DEBUG_PRINTF("pyda_add_hook %p %p\n", cb, cb->py_func);
+    DEBUG_PRINTF("pyda_add_hook %p %p for %llx\n", cb, cb->py_func, addr);
 
     cb->callback_type = 0;
     cb->addr = (void*)addr;
@@ -365,19 +367,22 @@ void pyda_add_hook(pyda_process *t, uint64_t addr, PyObject *callback) {
     // dr_where_am_i_t whereami = dr_where_am_i(drcontext, (void*)addr, NULL);
     // DEBUG_PRINTF("Hook is in %lu\n", whereami);
 
-    if (!hashtable_add(&t->callbacks, (void*)addr, cb)) {
+    if (!hashtable_add(&p->callbacks, (void*)addr, cb)) {
         dr_global_free(cb, sizeof(pyda_hook));
         dr_fprintf(STDERR, "Failed to add hook at %p\n", (void*)addr);
         dr_abort();
     }
 
-    t->dirty_hooks = 1;
+    
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    drvector_append(&t->hook_update_queue, (void*)addr);
 }
 
 void pyda_remove_hook(pyda_process *p, uint64_t addr) {
     hashtable_remove(&p->callbacks, (void*)addr);
-    p->dirty_hooks = 1;
-    drvector_append(&p->hook_delete_queue, (void*)addr);
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    drvector_append(&t->hook_update_queue, (void*)addr);
 }
 
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback) {
@@ -410,17 +415,8 @@ void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback) {
     Py_INCREF(callback);
 }
 
-static void flush_hook(void *hook) {
-    pyda_hook *cb = (pyda_hook*)hook;
-    if (cb->callback_type == 0) {
-        DEBUG_PRINTF("dr_flush_region: %llx\n", (void*)cb->addr);
-        dr_flush_region((void*)cb->addr, 1);
-        DEBUG_PRINTF("dr_flush_region end\n");
-    }
-
-}
-
 int pyda_flush_hooks() {
+    void *drcontext = dr_get_current_drcontext();
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     pyda_process *p = t->proc;
 
@@ -432,19 +428,41 @@ int pyda_flush_hooks() {
         flushed = 1;
     }
 
-    if (p->dirty_hooks) {
-        hashtable_apply_to_all_payloads(&p->callbacks, flush_hook);
-        p->dirty_hooks = 0;
+    if (t->hook_update_queue.entries) {
         flushed = 1;
 
-        // Flush deleted hooks
-        drvector_lock(&p->hook_delete_queue);
-        for (int i=0; i<p->hook_delete_queue.entries; i++) {
-            dr_flush_region((void*)p->hook_delete_queue.array[i], 1);
+        // Copy to temporary, alternate storage so we don't hold the lock
+        int entry_count = t->hook_update_queue.entries;
+        void **tmp = dr_thread_alloc(drcontext, sizeof(void*) * entry_count);
+        if (!tmp) {
+            dr_fprintf(STDERR, "dr_thread_alloc failed");
+            dr_abort();
         }
-        p->hook_delete_queue.entries = 0;
-        drvector_unlock(&p->hook_delete_queue);
+        memcpy(tmp, t->hook_update_queue.array, sizeof(void*) * entry_count);
+        t->hook_update_queue.entries = 0;
+
+        // Flush deleted hooks
+        for (int i=0; i<entry_count; i++) {
+            DEBUG_PRINTF("dr_flush_region: %llx\n", tmp[i]);
+            dr_flush_region(tmp[i], 1);
+            DEBUG_PRINTF("dr_flush_region end %llx\n", tmp[i]);
+
+            // race lol
+            p->flush_count++;
+        }
+
+        dr_thread_free(drcontext, tmp, sizeof(void*) * entry_count);
     }
+
+    if (t->flush_ts != p->flush_count) {
+        // Require that dr_redirect_execution is used, since another thread may have flushed
+        // us during the dr_mark_safe_to_suspend section in thread_prepare_for_python_entry
+        //
+        // note: right now other threads cannot flush us
+        flushed = 1;
+        t->flush_ts = p->flush_count;
+    }
+
 
     return flushed;
 }
@@ -481,14 +499,22 @@ void pyda_clear_run_until(pyda_thread *t) {
 
 int pyda_check_run_until(pyda_process *proc, void *test_pc) {
     // Unlocked for performance.
-    for (int i=0; i<proc->thread_run_untils.capacity; i++) {
+    for (int i=0; i<proc->thread_run_untils.entries; i++) {
         if (test_pc == proc->thread_run_untils.array[i]) return 1;
     }
     return 0;
 }
 
 static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc) {
-    if (gstate) *gstate = PyGILState_Ensure();
+    if (gstate) {
+        // HACK: This is not allowed per the docs. We get away with this
+        // because we check later to see if any flushes occurred during this period
+        t->flush_ts = t->proc->flush_count;
+
+        dr_mark_safe_to_suspend(dr_get_current_drcontext(), true);
+        *gstate = PyGILState_Ensure();
+        dr_mark_safe_to_suspend(dr_get_current_drcontext(), false);
+    }
 
     void *drcontext = dr_get_current_drcontext();
     t->cur_context.size = sizeof(dr_mcontext_t);
@@ -512,7 +538,7 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
             t->errored = 1;
         }
         dr_set_mcontext(drcontext, &t->cur_context);
-        if (t->proc->dirty_hooks) {
+        if (t->hook_update_queue.entries > 0) {
             dr_fprintf(STDERR, "\n[Pyda] WARN: Hooks should not be modified in a syscall. This is UB, continuing.\n");
         }
         if (gstate) PyGILState_Release(*gstate);
@@ -550,24 +576,24 @@ void pyda_hook_cleancall(pyda_hook *cb) {
 
     if (t->errored) return;
 
+    DEBUG_PRINTF("cleancall %p %p %p tid=%d\n", cb->addr, cb->py_func, t, dr_get_thread_id(dr_get_current_drcontext()));
     thread_prepare_for_python_entry(&gstate, t, cb->addr);
-
-    DEBUG_PRINTF("cleancall %p %p %p\n", cb, cb->py_func, t);
+    DEBUG_PRINTF("cleancall LOCKED %p %p %p\n", cb->addr, cb->py_func, t);
 
     PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->proc->py_obj, NULL);
 
     if (result == NULL) {
         dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook call failed. Skipping future hooks on thread %d\n", t->tid);
-        if (getenv("PYDA_ABORT_ON_ERROR") && getenv("PYDA_ABORT_ON_ERROR")[0] == '1') {
-            dr_fprintf(STDERR, "\n[Pyda] ABORTING (will crash now)\n");
-            *(int*)(1) = 1;
-        }
 
         dr_flush_file(STDERR);
         t->errored = 1;
         PyErr_Print();
         dr_fprintf(STDERR, "\n");
         // dr_abort();
+        if (getenv("PYDA_ABORT_ON_ERROR") && getenv("PYDA_ABORT_ON_ERROR")[0] == '1') {
+            dr_fprintf(STDERR, "\n[Pyda] ABORTING (will crash now)\n");
+            *(int*)(1) = 1;
+        }
     } else {
         Py_DECREF(result);
     }

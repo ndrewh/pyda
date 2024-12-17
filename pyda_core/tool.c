@@ -43,8 +43,7 @@ static void event_attach_post(void);
 extern int is_dynamorio_running;
 extern int pyda_attach_mode;
 
-pthread_cond_t python_thread_init1;
-pthread_cond_t python_thread_init2;
+int is_python_init;
 
 int g_pyda_tls_idx;
 int g_pyda_tls_is_python_thread_idx;
@@ -90,8 +89,6 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
     dr_register_fork_init_event(fork_event);
     dr_request_synchronized_exit();
 
-    pthread_cond_init(&python_thread_init1, 0);
-
     g_pyda_tls_idx = drmgr_register_tls_field();
     g_pyda_tls_is_python_thread_idx = drmgr_register_tls_field();
 }
@@ -111,6 +108,9 @@ void thread_init_event(void *drcontext) {
 
         pyda_prepare_io(global_proc);
         t = global_proc->main_thread;
+        if (!getenv("PYTHONPATH")) {
+            parse_proc_environ();
+        }
     } else {
         t = pyda_mk_thread(global_proc);
     }
@@ -139,12 +139,15 @@ void thread_init_event(void *drcontext) {
     if (t == global_proc->main_thread) {
         module_data_t *main_mod = dr_get_main_module();
         t->proc->entrypoint = (void*)main_mod->entry_point;
-    } else {
-        dr_mcontext_t mc;
-        mc.size = sizeof(mc);
-        mc.flags = DR_MC_ALL;
-        dr_get_mcontext(drcontext, &mc);
 
+        if (!getenv("PYDA_NO_ATTACH")) {
+            pyda_attach_mode = 1;
+            // In attach mode, the entrypoint will never be reached,
+            // so we release the lock now
+            DEBUG_PRINTF("PYDA_NO_ATTACH is not set, assuming attach mode\n")
+            pthread_mutex_unlock(&t->mutex);
+        }
+    } else {
         DEBUG_PRINTF("aux thread initial break\n");
         pyda_initial_break(t);
         DEBUG_PRINTF("aux thread initial break end\n");
@@ -374,33 +377,37 @@ static void fork_event(void *drcontext) {
 }
 
 static void event_attach_post() {
-    pyda_attach_mode = 1;
-    parse_proc_environ();
+    if (!pyda_attach_mode) {
+        dr_fprintf(STDERR, "Internal error: PYDA_NO_ATTACH is set but attach callback used\n");
+        dr_abort();
+        return;
+    }
 
     DEBUG_PRINTF("event_attach_post on tid %d\n", dr_get_thread_id(dr_get_current_drcontext()));
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    DEBUG_PRINTF("[PYDA] New thread %ld\n", t->tid);
+    DEBUG_PRINTF("[PYDA] Main thread (attached) is %ld\n", t->tid);
 
     if (t->proc->main_thread != t) {
         dr_fprintf(STDERR, "[Pyda] ERROR: Dynamorio is not running on the main thread. This is probably a bug.\n");
         dr_abort();
     }
 
-    pyda_initial_break(t);
-    DEBUG_PRINTF("entrypoint flush (attach)");
+    pthread_mutex_lock(&t->mutex); // we intentionally released the mutex based on `pyda_attach_mode`
+    pyda_initial_break(t); // wait for the script to call p.run()
 
     // XXX: Not clear if this is legal to call here. If it is, we should note that we don't
     // have to redirect execution, because we aren't actually in translated code yet!
-    pyda_flush_hooks();
-    DEBUG_PRINTF("entrypoint end (attach)");
+    /* pyda_flush_hooks(); */
+
+    DEBUG_PRINTF("entrypoint end (attach)\n");
 }
 
 static void thread_entrypoint_break() {
     DEBUG_PRINTF("entrypoint (break)\n");
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    DEBUG_PRINTF("[PYDA] New thread %ld\n", t->tid);
+    DEBUG_PRINTF("[PYDA] Main thread at entrypiont %ld\n", t->tid);
 
     pyda_initial_break(t);
     if (pyda_flush_hooks()) {
@@ -464,7 +471,6 @@ python_exit:
     t->python_exited = 1;
     t->errored = 1;
 
-    // dr_client_thread_set_suspendable(true);
     DEBUG_PRINTF("After script exit, GIL status %d\n", PyGILState_Check());
     PyEval_SaveThread(); // release GIL
 
@@ -499,10 +505,17 @@ void python_aux_thread(void *arg) {
 
     DEBUG_PRINTF("python_aux_thread id %d\n", dr_get_thread_id(drcontext));
 
+    // Wait for the main script to reach the first yield (so there is time to set thread_init_hook in the attach case)
+    pthread_mutex_lock(&t->proc->main_thread->mutex);
+    while (!t->proc->main_thread->yield_count)
+        pthread_cond_wait(&t->proc->main_thread->resume_cond, &t->proc->main_thread->mutex);
+    pthread_mutex_unlock(&t->proc->main_thread->mutex);
+
+    DEBUG_PRINTF("python_aux_thread enter id %d\n", dr_get_thread_id(drcontext));
+
+    // Acquire the GIL so this thread can call the thread entrypoint
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
-
-    DEBUG_PRINTF("python_aux_thread id %d locked\n", dr_get_thread_id(drcontext));
 
     // We just call the thread init hook, if one exists
     if (t->proc->thread_init_hook && !t->errored) {
@@ -517,7 +530,6 @@ void python_aux_thread(void *arg) {
 
     PyGILState_Release(gstate);
 
-    dr_client_thread_set_suspendable(true);
     DEBUG_PRINTF("python_aux_thread 4\n");
 
     t->python_exited = 1;

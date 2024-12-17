@@ -29,7 +29,6 @@ struct pyda_hook_s {
 };
 
 struct pyda_process_s {
-    int dirty_hooks;
     int refcount;
 
     pyda_thread *main_thread;
@@ -50,7 +49,7 @@ struct pyda_process_s {
     hashtable_t callbacks;
     drvector_t threads;
     drvector_t thread_run_untils; // vec of pcs
-    drvector_t hook_delete_queue;
+    int flush_count;
 #endif
 
 };
@@ -83,6 +82,13 @@ struct pyda_thread_s {
 #ifdef PYDA_DYNAMORIO_CLIENT
     dr_mcontext_t cur_context;
     drvector_t context_stack;
+
+    // thread-local list of hooks to be flushed; guarantees that changes go into
+    // effect when expected: e.g., when returning from a hook
+    drvector_t hook_update_queue;
+
+    // records the last seen proc->flush_count so that we don't return into a stale fragment
+    int flush_ts; 
 #endif
 };
 
