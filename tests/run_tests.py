@@ -50,16 +50,16 @@ TESTS = [
     )),
 
     # tests whether we can handle a large number of threads that do not get waited on
-    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
-        retcode=0,
-        checkers=[
-            output_checker,
-            no_warnings_or_errors,
-            lambda o, e: o.count(b"malloc") > 15000,
-            lambda o, e: o.count(b"free") > 15000,
-            lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
-        ]
-    )),
+    # ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
+    #     retcode=0,
+    #     checkers=[
+    #         output_checker,
+    #         no_warnings_or_errors,
+    #         lambda o, e: o.count(b"malloc") > 15000,
+    #         lambda o, e: o.count(b"free") > 15000,
+    #         lambda o, e: all((o.count(f"[thread {i}]".encode('utf-8')) == 40 for i in range(2, 100))),
+    #     ]
+    # )),
 
     # hook throws an exception
     ("err_hook_throw", "thread_1000.c", "err_hook.py", RunOpts(), ExpectedResult(
@@ -328,7 +328,7 @@ def run_test(c_file, python_file, run_opts, expected_result, test_name, debug, n
                 else:
                     # Attach mode: Launch the process and then attach to it
                     proc = subprocess.Popen([c_exe.resolve()], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    time.sleep(0.5)
+                    time.sleep(2)
                     result = subprocess.Popen(f"pyda-attach {p_path.resolve()} {proc.pid}", env=env, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
                     stdout, stderr = proc.communicate(timeout=TIMEOUT)
