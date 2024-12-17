@@ -5,7 +5,7 @@ RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget python3-pip
       build-essential gdb lcov pkg-config \
       libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
       libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
-      lzma lzma-dev tk-dev uuid-dev zlib1g-dev terminfo && \
+      lzma lzma-dev tk-dev uuid-dev zlib1g-dev ncurses-bin && \
       rm -rf /var/lib/apt/lists/*
 
 # install openssl to make python happy
