@@ -241,7 +241,7 @@ def backtrace_to_str(bt, demangle=False, short=False):
         if demangle and f[3].startswith("_Z"):
             sym = cxx_demangle(f[3])
             if short and len(sym) > 100:
-                sym = "..." + sym[-100:]
+                sym = sym[:50] + "..." + sym[-50:]
 
             s += f"[{f[1]}+{hex(f[2])}] {sym}\n"
         elif f[2] != 0:
