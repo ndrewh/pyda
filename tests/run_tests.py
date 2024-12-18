@@ -225,6 +225,8 @@ TESTS = [
             output_checker,
             no_warnings_or_errors,
             lambda o, e: o.count(b"pass\n") == 1,
+            lambda o, e: o.count(b"thread start\n") == 1,
+            lambda o, e: o.count(b"thread end\n") == 1,
         ]
     )),
 
