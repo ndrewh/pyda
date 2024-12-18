@@ -51,7 +51,7 @@ jobs:
 
       - name: Test (X86)
         run: |
-          docker run -e PYTHONUNBUFFERED=1 --rm --workdir /opt/pyda/tests --entrypoint python3 pyda_tmp run_tests.py --debug
+          docker run --cap-add=SYS_PTRACE -e PYTHONUNBUFFERED=1 --rm --workdir /opt/pyda/tests --entrypoint python3 pyda_tmp run_tests.py --debug
 
       - name: Push image
         uses: docker/build-push-action@v4.1.1
