@@ -23,6 +23,12 @@ class Process(ProcessTube):
         self._registered_syscall_post_hook = False
         self._has_run = False
 
+        self.regs = ProcessRegisters(handle)
+        self.mem = ProcessMemory(handle)
+        self.maps = ProcessMaps(handle)
+
+        self.exe_path = self._p.get_main_module()
+
     def _hook_dispatch(self, addr):
         for h in self._hooks[addr]:
             h(self)
@@ -113,20 +119,13 @@ class Process(ProcessTube):
         return self._p.write(addr, data)
 
     def __getattr__(self, name):
-        # TODO: Move these into CPython extension?
-        if name == "regs":
-            return ProcessRegisters(self._p)
-        elif name == "mem":
-            return ProcessMemory(self)
-        elif name == "maps":
-            return ProcessMaps(self._p)
-        elif name == "exe_path":
-            return self._p.get_main_module()
-
-        raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
+        if self.regs.has_reg(name):
+            raise AttributeError(f"Invalid attribute '{name}'. Did you mean 'regs.{name}'?")
+        else:
+            raise AttributeError(f"Invalid attribute '{name}'")
 
     def __setattr__(self, name, value):
-        if not name.startswith("_") and name not in ["timeout", "buffer", "closed"]:
+        if not name.startswith("_") and name not in ["timeout", "buffer", "closed", "regs", "mem", "maps", "exe_path"]:
             raise AttributeError(f"Cannot set attribute '{name}'")
 
         super().__setattr__(name, value)
@@ -302,6 +301,9 @@ class ProcessRegisters():
             self[name] = value
         else:
             super().__setattr__(name, value)
+
+    def has_reg(self, name):
+        return hasattr(pyda_core, "REG_"+name.upper())
 
 class ProcessMemory():
     def __init__(self, p):
