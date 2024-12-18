@@ -455,8 +455,6 @@ void python_main_thread(void *arg) {
         dr_abort();
     }
 
-    PyGILState_STATE gstate = PyGILState_Ensure();
-
     DEBUG_PRINTF("Running script...\n");
 
     if (!script_name) {
@@ -492,7 +490,8 @@ python_exit:
     t->errored = 1;
 
     DEBUG_PRINTF("After script exit, GIL status %d\n", PyGILState_Check());
-    PyGILState_Release(gstate);
+
+    Py_BEGIN_ALLOW_THREADS;
 
     if (!t->app_exited) {
         if (!t->signal)
@@ -509,10 +508,12 @@ python_exit:
 
     DEBUG_PRINTF("Py_FinalizeEx in thread %d\n", dr_get_thread_id(drcontext));
 
-    gstate = PyGILState_Ensure();
+    Py_END_ALLOW_THREADS;
+
     if (Py_FinalizeEx() < 0) {
         DEBUG_PRINTF("WARN: Python finalization failed\n");
     }
+
     DEBUG_PRINTF("Py_FinalizeEx done\n");
 
     dr_thread_free(drcontext, tls, sizeof(void*) * 130);
