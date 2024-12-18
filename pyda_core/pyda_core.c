@@ -19,6 +19,7 @@ pyda_process* pyda_mk_process() {
 #include "dr_api.h"
 
 static void free_hook(void *data) {
+    // Must hold GIL
     pyda_hook *hook = (pyda_hook*)data;
     Py_DECREF(hook->py_func);
     hook->py_func = NULL;
@@ -258,6 +259,7 @@ void pyda_process_destroy(pyda_process *p) {
 }
 
 void pyda_thread_destroy(pyda_thread *t) {
+    DEBUG_PRINTF("pyda_thread_destroy for idx %d\n", t->tid);
     pthread_mutex_lock(&t->proc->refcount_mutex);
 
     int new_refcount = dr_atomic_add32_return_sum(&t->proc->refcount, -1);
@@ -269,6 +271,7 @@ void pyda_thread_destroy(pyda_thread *t) {
     }
 
     drvector_delete(&t->context_stack);
+    drvector_delete(&t->hook_update_queue);
 
     dr_global_free(t, sizeof(pyda_thread));
 }

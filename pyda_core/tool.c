@@ -170,23 +170,38 @@ static const char *script_name;
 static void get_python_args(int *o_argc, const char ***o_argv) {
     int argc;
     const char **argv;
+    const char **new_argv;
+
     dr_get_option_array(pyda_client_id, &argc, &argv);
 
     if (argc >= 3 && strcmp(argv[1], "-script") == 0) {
-        script_name = argv[2];
-
-        // Shift out the two "-script X" arguments
-        argv[2] = argv[0];
-        argv = &argv[2];
+        script_name = strdup(argv[2]);
         argc -= 2;
 
+        // Copy to new memory
+        new_argv = dr_global_alloc(sizeof(const char*) * (argc + 1));
+        for (int i=0; i<argc; i++) {
+            new_argv[i] = strdup(argv[i+2]);
+        }
+
+        new_argv[argc] = NULL;
+        new_argv[0] = strdup(argv[0]);
+
+        // Shift out the two "-script X" arguments
         DEBUG_PRINTF("Using script from command line: %s\n", script_name);
     } else {
         script_name = getenv("PYDA_SCRIPT");
+
+        // Copy to new memory
+        new_argv = dr_global_alloc(sizeof(const char*) * (argc + 1));
+        for (int i=0; i<argc; i++) {
+            new_argv[i] = strdup(argv[i]);
+        }
+        new_argv[argc] = NULL;
     }
 
     *o_argc = argc;
-    *o_argv = argv;
+    *o_argv = new_argv;
 }
 
 void python_init() {
@@ -195,7 +210,6 @@ void python_init() {
     is_init = true;
 
     DEBUG_PRINTF("python_init\n");
-    /* sleep(5); */
     wchar_t *program = Py_DecodeLocale("program_name", NULL);
     if (program == NULL) {
         DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
@@ -262,7 +276,7 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     #error "Unsupported arch"
 #endif
     if (instr_get_app_pc(instr) == t->proc->entrypoint) {
-        DEBUG_PRINTF("** Found PC\n");
+        DEBUG_PRINTF("** Found Entrypoint\n");
         dr_insert_clean_call(drcontext, bb, instrlist_first_app(bb), (void *)thread_entrypoint_break,
                          false /* save fpstate */, 0);
     } else if ((callback = pyda_get_callback(t->proc, instr_get_app_pc(instr)))) {
@@ -441,6 +455,8 @@ void python_main_thread(void *arg) {
         dr_abort();
     }
 
+    PyGILState_STATE gstate = PyGILState_Ensure();
+
     DEBUG_PRINTF("Running script...\n");
 
     if (!script_name) {
@@ -459,6 +475,10 @@ void python_main_thread(void *arg) {
     pthread_mutex_lock(&t->mutex);
     pthread_mutex_unlock(&t->mutex);
 
+    // This is a good place to put a sleep to attach GDB
+    // if testing out the attach mode
+    // sleep(15);
+
     if (PyRun_SimpleFile(f, script_name) == -1) {
         // python exception
         dr_fprintf(STDERR, "[Pyda] Script raised exception, see above.\n");
@@ -472,7 +492,7 @@ python_exit:
     t->errored = 1;
 
     DEBUG_PRINTF("After script exit, GIL status %d\n", PyGILState_Check());
-    PyEval_SaveThread(); // release GIL
+    PyGILState_Release(gstate);
 
     if (!t->app_exited) {
         if (!t->signal)
@@ -488,7 +508,8 @@ python_exit:
     DEBUG_PRINTF("python_main_thread destroy done\n");
 
     DEBUG_PRINTF("Py_FinalizeEx in thread %d\n", dr_get_thread_id(drcontext));
-    PyGILState_STATE gstate = PyGILState_Ensure();
+
+    gstate = PyGILState_Ensure();
     if (Py_FinalizeEx() < 0) {
         DEBUG_PRINTF("WARN: Python finalization failed\n");
     }
@@ -530,7 +551,7 @@ void python_aux_thread(void *arg) {
 
     PyGILState_Release(gstate);
 
-    dr_client_thread_set_suspendable(true);
+    // dr_client_thread_set_suspendable(true);
 
     DEBUG_PRINTF("python_aux_thread 4\n");
 
