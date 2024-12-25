@@ -79,14 +79,15 @@ See [examples/](examples/) for additional examples.
 
 - [`ltrace.py`](examples/ltrace.py): Hook all calls to library functions, and print out their arguments
 - [`strace.py`](examples/strace.py): Hook all syscalls and print out their arguments
+- [`cmplog.py`](examples/cmplog.py): Hook all `cmp` instructions and print out their arguments
 - [`resolve_indirect_calls.py`](examples/resolve_indirect_calls.py): dump a list of indirect calls with `objdump`, and then
 print out the targets during execution
 
 
 ## Limitations
-- Currently Linux only (please contribute Windows support!)
-- Currently X86_64 only (please contribute ARM64 support!)
-- All of the limitations of Dynamorio apply. The program must be reasonably well behaved.
+- Currently Linux only (please contribute Windows and macOS support!)
+- Currently X86_64/ARM64 only (please contribute support for other architectures)
+- All of the limitations of Dynamorio apply. (The program must be reasonably well behaved. You should assume a sufficiently motivated program can detect whether it is running under Dynamorio.)
 - Some state may be shared with the target process; while Dynamorio
 attempts to isolate our libc (and other libraries) from the target, OS structures (e.g. fds)
 are shared.
