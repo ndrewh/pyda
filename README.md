@@ -231,12 +231,15 @@ a lot of edge cases (think: hooks which throw exceptions, hooks which remove the
 
 ### Multithreading
 
-Unlike GDB/ptrace, which suspends *all* threads
-when *any* thread reaches a breakpoint, Pyda hooks do not interrupt
-other threads.
+While in theory `ptrace` allows threads to be started and stopped independently, most interactive debuggers like GDB automatically suspend *all* threads
+when *any* thread reaches a breakpoint (for more infomation, see GDB's `scheduler-locking` option and and the ptrace ["group-stop" documentation](https://man7.org/linux/man-pages/man2/ptrace.2.html)).
+
+Like GDB breakpoints, Pyda hooks are global to all threads. But unlike GDB, hook execution does not interrupt other threads (except as described below).
 
 Programs running under Pyda get a single CPython interpreter, so all threads share the same state (globals). When a hook
-is called by a thread, the thread will first acquire the GIL. We maintain a thread-specific
+is called by a thread, the thread will first acquire the GIL. This effectively serves as a global lock over all hooks, but we may try to eliminate this in a future release.
+
+We maintain a thread-specific
 data structure using Dynamorio's TLS mechanism, which allows us to track thread creation/destruction
 and report thread-specific information (e.g. `p.tid`) in hooks.
 
