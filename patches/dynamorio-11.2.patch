@@ -1,0 +1,1032 @@
+diff --git a/core/arch/aarch64/proc.c b/core/arch/aarch64/proc.c
+index 0c8758229..84a088849 100644
+--- a/core/arch/aarch64/proc.c
++++ b/core/arch/aarch64/proc.c
+@@ -36,12 +36,45 @@
+ #include "arch.h"
+ #include "instr.h"
+ 
++#if defined(MACOS)
++#    include <sys/sysctl.h>
++#endif
++
+ static int num_simd_saved;
+ static int num_simd_registers;
+ static int num_svep_registers;
+ static int num_ffr_registers;
+ static int num_opmask_registers;
+ 
++#    define GET_FEAT_REG(FEATURE) (feature_reg_idx_t)((((ushort)FEATURE) & 0x3F00) >> 8)
++#    define GET_FEAT_NIBPOS(FEATURE) ((((ushort)FEATURE) & 0x00F0) >> 4)
++#    define GET_FEAT_VAL(FEATURE) (((ushort)FEATURE) & 0x000F)
++#    define GET_FEAT_NSFLAG(FEATURE) ((((ushort)FEATURE) & 0x8000) >> 15)
++#    define GET_FEAT_EXACT_MATCH(FEATURE) ((((ushort)FEATURE) & 0x4000) >> 14)
++
++void
++proc_set_feature(feature_bit_t feature_bit, bool enable)
++{
++    uint64 *freg_val = cpu_info.features.isa_features;
++    ushort feat_nibble = GET_FEAT_NIBPOS(feature_bit);
++    bool feat_nsflag = GET_FEAT_NSFLAG(feature_bit);
++    uint64 feat_val = GET_FEAT_VAL(feature_bit);
++
++    feature_reg_idx_t feat_reg = GET_FEAT_REG(feature_bit);
++    freg_val += feat_reg;
++
++    /* Clear the current feature state. */
++    *freg_val &= ~(0xFULL << (feat_nibble * 4));
++    if (enable) {
++        /* Write the feature value into the feature nibble. */
++        *freg_val |= feat_val << (feat_nibble * 4);
++    } else if (feat_nsflag) {
++        /* If the not-set flag is 0xF, then that needs manually setting. */
++        *freg_val |= 0xF << (feat_nibble * 4);
++    }
++}
++
++
+ #ifndef DR_HOST_NOT_TARGET
+ 
+ #    define NUM_FEATURE_REGISTERS (sizeof(features_t) / sizeof(uint64))
+@@ -146,6 +179,33 @@ get_processor_specific_info(void)
+     dr_set_vector_length(256);
+ #        endif
+ }
++#    else /* !defined(MACOS) */
++
++/* On macOS, MRS appears to be restricted. We'll use sysctl's instead. */
++static void
++get_processor_specific_info(void)
++{
++    memset(&cpu_info.features, 0, sizeof(cpu_info.features));
++
++    /* get FEATURE_PTRAUTH from sysctl hw.optional.arm.FEAT_PAuth */
++
++    char buf[32];
++    size_t buflen = 32;
++
++#        define SET_FEAT_FROM_SYSCTL(FEATURE, SYSCTL)                        \
++            if (sysctlbyname(SYSCTL, &buf, &buflen, NULL, 0) == -1) {        \
++                ASSERT_CURIOSITY(false && SYSCTL " sysctl failed");          \
++                SYSLOG_INTERNAL_WARNING("Failed to read " SYSCTL " sysctl"); \
++            } else if (buflen == 4) {                                        \
++                uint32_t val = *(uint32_t *)buf;                             \
++                if (val == 1) {                                              \
++                    proc_set_feature(FEATURE, true);                         \
++                }                                                            \
++            }
++
++    SET_FEAT_FROM_SYSCTL(FEATURE_PAUTH, "hw.optional.arm.FEAT_PAuth");
++    SET_FEAT_FROM_SYSCTL(FEATURE_FPAC, "hw.optional.arm.FEAT_FPAC");
++}
+ #    endif
+ 
+ #    define LOG_FEATURE(feature)       \
+@@ -172,7 +232,8 @@ proc_init_arch(void)
+     }
+ 
+ #ifndef DR_HOST_NOT_TARGET
+-#    if !defined(MACOS) // TODO i#5383: Get this working on Mac. */
++#    if !defined(MACOS) || \
++        (defined(MACOS) && defined(AARCH64)) // TODO i#5383: Get this working on Mac. */
+     get_processor_specific_info();
+ 
+     DOLOG(1, LOG_TOP, {
+@@ -251,34 +312,6 @@ proc_init_arch(void)
+ #endif
+ }
+ 
+-#define GET_FEAT_REG(FEATURE) (feature_reg_idx_t)((((ushort)FEATURE) & 0x3F00) >> 8)
+-#define GET_FEAT_NIBPOS(FEATURE) ((((ushort)FEATURE) & 0x00F0) >> 4)
+-#define GET_FEAT_VAL(FEATURE) (((ushort)FEATURE) & 0x000F)
+-#define GET_FEAT_NSFLAG(FEATURE) ((((ushort)FEATURE) & 0x8000) >> 15)
+-#define GET_FEAT_EXACT_MATCH(FEATURE) ((((ushort)FEATURE) & 0x4000) >> 14)
+-
+-void
+-proc_set_feature(feature_bit_t feature_bit, bool enable)
+-{
+-    uint64 *freg_val = cpu_info.features.isa_features;
+-    ushort feat_nibble = GET_FEAT_NIBPOS(feature_bit);
+-    bool feat_nsflag = GET_FEAT_NSFLAG(feature_bit);
+-    uint64 feat_val = GET_FEAT_VAL(feature_bit);
+-
+-    feature_reg_idx_t feat_reg = GET_FEAT_REG(feature_bit);
+-    freg_val += feat_reg;
+-
+-    /* Clear the current feature state. */
+-    *freg_val &= ~(0xFULL << (feat_nibble * 4));
+-    if (enable) {
+-        /* Write the feature value into the feature nibble. */
+-        *freg_val |= feat_val << (feat_nibble * 4);
+-    } else if (feat_nsflag) {
+-        /* If the not-set flag is 0xF, then that needs manually setting. */
+-        *freg_val |= 0xF << (feat_nibble * 4);
+-    }
+-}
+-
+ void
+ enable_all_test_cpu_features()
+ {
+diff --git a/core/heap.c b/core/heap.c
+index 168084a8c..5695b8981 100644
+--- a/core/heap.c
++++ b/core/heap.c
+@@ -122,7 +122,7 @@ static const uint BLOCK_SIZES[] = {
+     sizeof(fragment_t) + sizeof(direct_linkstub_t) +
+         sizeof(cbr_fallthrough_linkstub_t), /* 60 dbg / 56 rel */
+ #    ifndef DEBUG
+-    sizeof(instr_t), /* 72 */
++    sizeof(instr_t),                        /* 72 */
+ #    endif
+ #endif
+     /* we keep this bucket even though only 10% or so of normal bbs
+@@ -1955,6 +1955,7 @@ vmh_exit(vm_heap_t *vmh, bool contains_stacks)
+                                 : (DYNAMO_OPTION(stack_guard_pages) ? PAGE_SIZE : 0)),
+                        DYNAMO_OPTION(vmm_block_size)) /
+                    DYNAMO_OPTION(vmm_block_size));
++
+         uint unfreed_blocks;
+         if (!contains_stacks || standalone_library)
+             unfreed_blocks = 0;
+diff --git a/core/iox.h b/core/iox.h
+index e9f4ee272..c0329c228 100644
+--- a/core/iox.h
++++ b/core/iox.h
+@@ -706,9 +706,7 @@ TNAME(d_r_vsnprintf)(TCHAR *s, size_t max, const TCHAR *fmt, va_list ap)
+             c++;
+         } else {
+             const TCHAR *cstart = c;
+-            int nbytes = 0;
+             while (*c && *c != _T('%')) {
+-                nbytes++;
+                 c++;
+             }
+             while (cstart < c) {
+diff --git a/core/ir/opnd_shared.c b/core/ir/opnd_shared.c
+index 11ae3eb0d..c077ffc3a 100644
+--- a/core/ir/opnd_shared.c
++++ b/core/ir/opnd_shared.c
+@@ -2198,7 +2198,7 @@ DR_API
+ bool
+ reg_get_value_ex(reg_id_t reg, dr_mcontext_t *mc, DR_PARAM_OUT byte *val)
+ {
+-#ifdef X86
++#if defined(X86)
+     if (reg >= DR_REG_START_MMX && reg <= DR_REG_STOP_MMX) {
+         get_mmx_val((uint64 *)val, reg - DR_REG_START_MMX);
+     } else if (reg >= DR_REG_START_XMM && reg <= DR_REG_STOP_XMM) {
+diff --git a/core/lib/dr_tools.h b/core/lib/dr_tools.h
+index 8a56eb772..f016fe93a 100644
+--- a/core/lib/dr_tools.h
++++ b/core/lib/dr_tools.h
+@@ -2144,6 +2144,11 @@ DR_API
+ void
+ dr_thread_yield(void);
+ 
++DR_API
++/** Current thread gives up its time quantum. */
++void
++dr_set_safe_for_sync(bool safe);
++
+ /** Flags controlling the behavior of dr_suspend_all_other_threads_ex(). */
+ typedef enum {
+     /**
+diff --git a/core/lib/instrument.c b/core/lib/instrument.c
+index 2b7e4be9b..142d48d02 100644
+--- a/core/lib/instrument.c
++++ b/core/lib/instrument.c
+@@ -148,6 +148,9 @@ typedef struct _callback_list_t {
+  */
+ /*
+  */
++
++void print_xmm0(int);
++
+ #define FAST_COPY_SIZE 5
+ #define call_all_ret(ret, retop, postop, vec, type, ...)                         \
+     do {                                                                         \
+@@ -872,7 +875,7 @@ instrument_exit_event(void)
+     /* support dr_get_mcontext() from the exit event */
+     if (!standalone_library)
+         get_thread_private_dcontext()->client_data->mcontext_in_dcontext = true;
+-    call_all(exit_callbacks, int (*)(),
++    call_all(exit_callbacks, int (*)(void *),
+              /* It seems the compiler is confused if we pass no var args
+               * to the call_all macro.  Bogus NULL arg */
+              NULL);
+@@ -885,13 +888,13 @@ instrument_post_attach_event(void)
+         ASSERT(post_attach_callbacks.num == 0);
+         return;
+     }
+-    call_all(post_attach_callbacks, int (*)(), NULL);
++    call_all(post_attach_callbacks, int (*)(void *), NULL);
+ }
+ 
+ void
+ instrument_pre_detach_event(void)
+ {
+-    call_all(pre_detach_callbacks, int (*)(), NULL);
++    call_all(pre_detach_callbacks, int (*)(void *), NULL);
+ }
+ 
+ void
+@@ -1492,7 +1495,7 @@ instrument_fork_init(dcontext_t *dcontext)
+ void
+ instrument_low_on_memory()
+ {
+-    call_all(low_on_memory_callbacks, int (*)());
++    call_all(low_on_memory_callbacks, int (*)(void *), NULL);
+ }
+ 
+ /* PR 536058: split the exit event from thread cleanup, to provide a
+@@ -4747,6 +4750,18 @@ dr_insert_write_raw_tls(void *drcontext, instrlist_t *ilist, instr_t *where,
+         });
+ }
+ 
++DR_API
++void
++dr_set_safe_for_sync(bool safe)
++{
++    dcontext_t *dcontext = get_thread_private_dcontext();
++    CLIENT_ASSERT(!standalone_library, "API not supported in standalone mode");
++    if (IS_CLIENT_THREAD(dcontext))
++        dcontext->client_data->client_thread_safe_for_synch = safe;
++    else
++        dcontext->client_data->at_safe_to_terminate_syscall = safe;
++}
++
+ DR_API
+ /* Current thread gives up its time quantum. */
+ void
+diff --git a/core/loader_shared.c b/core/loader_shared.c
+index 8e7d68fb0..e8b44974b 100644
+--- a/core/loader_shared.c
++++ b/core/loader_shared.c
+@@ -453,6 +453,14 @@ privload_lookup_by_base(app_pc modbase)
+     return NULL;
+ }
+ 
++// HACK
++privmod_t* privload_lookup_by_pc_takelock(app_pc pc) {
++    acquire_recursive_lock(&privload_lock);
++    privmod_t *res = privload_lookup_by_pc(pc);
++    release_recursive_lock(&privload_lock);
++    return res;
++}
++
+ /* Lookup the private loaded library by base */
+ privmod_t *
+ privload_lookup_by_pc(app_pc pc)
+@@ -927,20 +935,16 @@ loader_allow_unsafe_static_behavior(void)
+  */
+ #define REDIRECT_HEADER_SHIFTED (1ULL << IF_X64_ELSE(63, 31))
+ 
+-/* This routine allocates memory from DR's global memory pool.  Unlike
+- * dr_global_alloc(), however, we store the size of the allocation in
+- * the first few bytes so redirect_free() can retrieve it.  We also align
+- * to the standard alignment used by most allocators.  This memory
+- * is also not guaranteed-reachable.
+- */
+-void *
+-redirect_malloc(size_t size)
+-{
++static void *
++private_alloc(size_t alignment, size_t size) {
+     void *mem;
++    if (alignment < STANDARD_HEAP_ALIGNMENT) {
++        alignment = STANDARD_HEAP_ALIGNMENT;
++    }
+     /* We need extra space to store the size and alignment bit and ensure the returned
+      * pointer is aligned.
+      */
+-    size_t alloc_size = size + sizeof(size_t) + STANDARD_HEAP_ALIGNMENT - HEAP_ALIGNMENT;
++    size_t alloc_size = size + sizeof(size_t) + alignment - HEAP_ALIGNMENT;
+     /* Our header is the size itself, with the top bit stolen to indicate alignment. */
+     if (TEST(REDIRECT_HEADER_SHIFTED, alloc_size)) {
+         /* We do not support the top bit being set as that conflicts with the bit in
+@@ -956,15 +960,15 @@ redirect_malloc(size_t size)
+         return NULL;
+     }
+     ptr_uint_t res =
+-        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), STANDARD_HEAP_ALIGNMENT);
++        ALIGN_FORWARD((ptr_uint_t)mem + sizeof(size_t), alignment);
+     size_t header = alloc_size;
+     ASSERT(HEAP_ALIGNMENT * 2 == STANDARD_HEAP_ALIGNMENT);
+     ASSERT(!TEST(REDIRECT_HEADER_SHIFTED, header));
+     if (res == (ptr_uint_t)mem + sizeof(size_t)) {
+         /* Already aligned. */
+-    } else if (res == (ptr_uint_t)mem + sizeof(size_t) * 2) {
+-        /* DR's alignment is "odd" for double-pointer so we're adding one pointer. */
++    } else if (res >= (ptr_uint_t)mem + sizeof(size_t) * 2) {
+         header |= REDIRECT_HEADER_SHIFTED;
++        *(size_t*)(res - 2 * sizeof(size_t)) = res - 2 * sizeof(size_t) - (ptr_uint_t)mem;
+     } else
+         ASSERT_NOT_REACHED();
+     *((size_t *)(res - sizeof(size_t))) = header;
+@@ -972,6 +976,24 @@ redirect_malloc(size_t size)
+     return (void *)res;
+ }
+ 
++/* This routine allocates memory from DR's global memory pool.  Unlike
++ * dr_global_alloc(), however, we store the size of the allocation in
++ * the first few bytes so redirect_free() can retrieve it.  We also align
++ * to the standard alignment used by most allocators.  This memory
++ * is also not guaranteed-reachable.
++ */
++void *
++redirect_malloc(size_t size)
++{
++    return private_alloc(STANDARD_HEAP_ALIGNMENT, size);
++}
++
++int
++redirect_posix_memalign(void **memptr, size_t alignment, size_t size) {
++    *memptr = private_alloc(alignment, size);
++    return 0;
++}
++
+ /* Returns the underlying DR allocation's size and starting point, given a
+  * wrapped-malloc-layer pointer from a client/privlib.
+  */
+@@ -984,6 +1006,8 @@ redirect_malloc_size_and_start(void *mem, DR_PARAM_OUT void **start_out)
+     if (TEST(REDIRECT_HEADER_SHIFTED, size)) {
+         start = size_ptr - 1;
+         size &= ~REDIRECT_HEADER_SHIFTED;
++
++        start -= *(size_ptr - 1);
+     }
+     if (start_out != NULL)
+         *start_out = start;
+@@ -997,12 +1021,7 @@ redirect_malloc_requested_size(void *mem)
+         return 0;
+     void *start;
+     size_t size = redirect_malloc_size_and_start(mem, &start);
+-    size -= sizeof(size_t);
+-    if (start != mem) {
+-        /* Subtract the extra size for alignment. */
+-        size -= sizeof(size_t);
+-    }
+-    return size;
++    return (size_t)(start + size - mem);
+ }
+ 
+ /* This routine allocates memory from DR's global memory pool. Unlike
+diff --git a/core/module_shared.h b/core/module_shared.h
+index a9f64e23a..c1ba22345 100644
+--- a/core/module_shared.h
++++ b/core/module_shared.h
+@@ -498,6 +498,9 @@ privload_lookup_by_base(app_pc modbase);
+ privmod_t *
+ privload_lookup_by_pc(app_pc modbase);
+ 
++DR_API privmod_t *
++privload_lookup_by_pc_takelock(app_pc modbase);
++
+ /* name is assumed to be in immutable persistent storage.
+  * a copy of path is made.
+  */
+@@ -621,6 +624,9 @@ redirect_calloc(size_t nmemb, size_t size);
+ void *
+ redirect_malloc(size_t size);
+ 
++int
++redirect_posix_memalign(void **memptr, size_t alignment, size_t size);
++
+ void
+ redirect_free(void *mem);
+ 
+diff --git a/core/os_shared.h b/core/os_shared.h
+index 147fca893..6aad705d9 100644
+--- a/core/os_shared.h
++++ b/core/os_shared.h
+@@ -462,7 +462,7 @@ os_page_size(void);
+ /* This also tries to set other auxv values. */
+ void
+ os_page_size_init(const char **env, bool env_followed_by_auxv);
+-size_t
++DR_API size_t
+ os_minsigstksz(void);
+ #endif
+ bool
+@@ -1207,7 +1207,7 @@ load_private_library(const char *filename, bool reachable);
+ bool
+ unload_private_library(app_pc modbase);
+ /* searches in standard paths instead of requiring abs path */
+-app_pc
++DR_API app_pc
+ locate_and_load_private_library(const char *name, bool reachable);
+ void
+ loader_init_prologue(void);
+diff --git a/core/synch.c b/core/synch.c
+index eba8fb5b6..e4b23fd82 100644
+--- a/core/synch.c
++++ b/core/synch.c
+@@ -517,6 +517,9 @@ should_suspend_client_thread(dcontext_t *dcontext, thread_synch_state_t desired_
+ {
+     /* Marking un-suspendable does not apply to cleaning/terminating */
+     ASSERT(IS_CLIENT_THREAD(dcontext));
++    if (THREAD_SYNCH_IS_CLEANED(desired_state)) {
++        SYSLOG_INTERNAL_INFO("cleaning client thread " TIDFMT, dcontext->owning_thread);
++    }
+     return (THREAD_SYNCH_IS_CLEANED(desired_state) || dcontext->client_data->suspendable);
+ }
+ 
+@@ -769,7 +772,7 @@ check_wait_at_safe_spot(dcontext_t *dcontext, thread_synch_permission_t cur_stat
+ }
+ 
+ /* adjusts the pending synch count */
+-void
++DR_API void
+ adjust_wait_at_safe_spot(dcontext_t *dcontext, int amt)
+ {
+     thread_synch_data_t *tsd = (thread_synch_data_t *)dcontext->synch_field;
+@@ -1253,8 +1256,8 @@ synch_with_all_threads(thread_synch_state_t desired_synch_state,
+ 
+     LOG(THREAD, LOG_SYNCH, 1,
+         "synch with all threads my id = " SZFMT
+-        " Giving %d permission and seeking %d state\n",
+-        my_id, cur_state, desired_synch_state);
++        " Giving %d permission and seeking %d state, flags %x\n",
++        my_id, cur_state, desired_synch_state, flags);
+ 
+     /* grab all_threads_synch_lock */
+     /* since all_threads synch doesn't give any permissions this is necessary
+diff --git a/core/unix/loader.c b/core/unix/loader.c
+index 308de21a6..29504aa39 100644
+--- a/core/unix/loader.c
++++ b/core/unix/loader.c
+@@ -165,7 +165,7 @@ privload_locate_and_load(const char *impname, privmod_t *dependent, bool reachab
+ static void
+ privload_call_lib_func(dcontext_t *dcontext, privmod_t *privmod, fp_t func);
+ 
+-static void
++DR_API void
+ privload_relocate_mod(privmod_t *mod);
+ 
+ static void
+@@ -698,16 +698,16 @@ privload_os_finalize(privmod_t *privmod)
+     os_privmod_data_t *opd = (os_privmod_data_t *)privmod->os_privmod_data;
+     /* Special handling for standard I/O file descriptors. */
+     privmod_stdout = (FILE **)get_proc_address_from_os_data(
+-        &opd->os_data, opd->load_delta, LIBC_STDOUT_NAME, NULL);
++        &opd->os_data, opd->load_delta, LIBC_STDOUT_NAME, NULL /* symver */, NULL);
+     privmod_stdin = (FILE **)get_proc_address_from_os_data(&opd->os_data, opd->load_delta,
+-                                                           LIBC_STDIN_NAME, NULL);
++                                                           LIBC_STDIN_NAME, NULL /* symver */, NULL);
+     privmod_stderr = (FILE **)get_proc_address_from_os_data(
+-        &opd->os_data, opd->load_delta, LIBC_STDERR_NAME, NULL);
++        &opd->os_data, opd->load_delta, LIBC_STDERR_NAME, NULL /* symver */, NULL);
+     /* i#5133: glibc 2.32+ has ld.so call a hardcoded initializer before calling the
+      * regular ELF constructors.
+      */
+     void (*libc_early_init)(bool) = (void (*)(bool))get_proc_address_from_os_data(
+-        &opd->os_data, opd->load_delta, LIBC_EARLY_INIT_NAME, NULL);
++        &opd->os_data, opd->load_delta, LIBC_EARLY_INIT_NAME, NULL /* symver */, NULL);
+     if (libc_early_init == NULL) {
+         return;
+     }
+@@ -720,7 +720,7 @@ privload_os_finalize(privmod_t *privmod)
+     /* Do not try to clobber vars unless we have to: get the libc version. */
+ #    define LIBC_GET_VERSION_NAME "gnu_get_libc_version"
+     const char *(*libc_ver)(void) = (const char *(*)(void))get_proc_address_from_os_data(
+-        &opd->os_data, opd->load_delta, LIBC_GET_VERSION_NAME, NULL);
++        &opd->os_data, opd->load_delta, LIBC_GET_VERSION_NAME, NULL /* symver */, NULL);
+     if (libc_ver == NULL)
+         return;
+     LOG(GLOBAL, LOG_LOADER, 2, "%s: calling %s\n", __FUNCTION__, LIBC_GET_VERSION_NAME);
+@@ -744,7 +744,7 @@ privload_os_finalize(privmod_t *privmod)
+     }
+     os_privmod_data_t *ld_opd = (os_privmod_data_t *)privmod_ld_linux->os_privmod_data;
+     byte *glro = get_proc_address_from_os_data(&ld_opd->os_data, ld_opd->load_delta,
+-                                               "_rtld_global_ro", NULL);
++                                               "_rtld_global_ro", NULL /* symver */, NULL);
+     if (glro == NULL) {
+         SYSLOG_INTERNAL_WARNING("glibc 2.34+ i#5437 workaround failed: missed glro");
+         return;
+@@ -1110,7 +1110,7 @@ get_private_library_address(app_pc modbase, const char *name)
+     if (dynamo_heap_initialized) {
+         /* opd is initialized */
+         os_privmod_data_t *opd = (os_privmod_data_t *)mod->os_privmod_data;
+-        res = get_proc_address_from_os_data(&opd->os_data, opd->load_delta, name, NULL);
++        res = get_proc_address_from_os_data(&opd->os_data, opd->load_delta, name, NULL /* symver */, NULL);
+         release_recursive_lock(&privload_lock);
+         return res;
+     } else {
+@@ -1130,7 +1130,7 @@ get_private_library_address(app_pc modbase, const char *name)
+             release_recursive_lock(&privload_lock);
+             return NULL;
+         }
+-        res = get_proc_address_from_os_data(&os_data, delta, name, NULL);
++        res = get_proc_address_from_os_data(&os_data, delta, name, NULL /* symver */, NULL);
+         release_recursive_lock(&privload_lock);
+         return res;
+     }
+@@ -1362,7 +1362,13 @@ privload_relocate_os_privmod_data(os_privmod_data_t *opd, byte *mod_base)
+ }
+ #endif /* LINUX */
+ 
+-static void
++DR_API void privload_relocate_mod_takelock(privmod_t *mod) {
++    acquire_recursive_lock(&privload_lock);
++    privload_relocate_mod(mod);
++    release_recursive_lock(&privload_lock);
++}
++
++void
+ privload_relocate_mod(privmod_t *mod)
+ {
+ #ifdef LINUX
+@@ -1604,6 +1610,7 @@ typedef struct _redirect_import_t {
+ static const redirect_import_t redirect_imports[] = {
+     { "calloc", (app_pc)redirect_calloc },
+     { "malloc", (app_pc)redirect_malloc },
++    { "posix_memalign", (app_pc)redirect_posix_memalign },
+     { "free", (app_pc)redirect_free },
+     { "realloc", (app_pc)redirect_realloc },
+     { "strdup", (app_pc)redirect_strdup },
+@@ -1620,8 +1627,8 @@ static const redirect_import_t redirect_imports[] = {
+     /* These libc routines can call pthread functions and cause hangs (i#4928) so
+      * we use our syscall wrappers instead.
+      */
+-    { "read", (app_pc)os_read },
+-    { "write", (app_pc)os_write },
++    /* { "read", (app_pc)os_read }, */
++    /* { "write", (app_pc)os_write }, */
+ #if defined(LINUX) && !defined(ANDROID)
+     { "__tls_get_addr", (app_pc)redirect___tls_get_addr },
+     { "___tls_get_addr", (app_pc)redirect____tls_get_addr },
+@@ -1635,6 +1642,7 @@ static const redirect_import_t redirect_imports[] = {
+     { "__gnu_Unwind_Find_exidx", (app_pc)redirect___gnu_Unwind_Find_exidx },
+ #    endif
+ #endif
++    // { "dlsym", (app_pc)redirect_dlsym },
+     { "dlsym", (app_pc)redirect_dlsym },
+     /* We need these for clients that don't use libc (i#1747) */
+     { "strlen", (app_pc)strlen },
+@@ -1656,7 +1664,12 @@ static const redirect_import_t redirect_imports[] = {
+     { "memset_chk", (app_pc)memset },
+     { "memmove_chk", (app_pc)memmove },
+     { "strncpy_chk", (app_pc)strncpy },
++    /* { "__errno_location", (app_pc)__errno_location } */
+ };
++
++DR_API redirect_import_t *client_redirect_imports = NULL;
++DR_API int client_redirect_imports_count = 0;
++
+ #define REDIRECT_IMPORTS_NUM (sizeof(redirect_imports) / sizeof(redirect_imports[0]))
+ 
+ #ifdef DEBUG
+@@ -1686,6 +1699,15 @@ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *na
+         }
+     }
+ #endif
++    for (i = 0; i < client_redirect_imports_count; i++) {
++        if (strcmp(client_redirect_imports[i].name, name) == 0) {
++            if (opd->use_app_imports && client_redirect_imports[i].app_func != NULL)
++                *r_addr = (ptr_uint_t)client_redirect_imports[i].app_func;
++            else
++                *r_addr = (ptr_uint_t)client_redirect_imports[i].func;
++            return true;
++        }
++    }
+     for (i = 0; i < REDIRECT_IMPORTS_NUM; i++) {
+         if (strcmp(redirect_imports[i].name, name) == 0) {
+             if (opd->use_app_imports && redirect_imports[i].app_func != NULL)
+diff --git a/core/unix/loader_linux.c b/core/unix/loader_linux.c
+index eb307818b..2511e87cb 100644
+--- a/core/unix/loader_linux.c
++++ b/core/unix/loader_linux.c
+@@ -135,7 +135,7 @@ static size_t client_tls_size = 2 * 4096;
+  * good way to guess how big this allocation was.  Instead we use this estimate.
+  */
+ /* On A32, the pthread is put before tcbhead instead tcbhead being part of pthread */
+-static size_t tcb_size = IF_X64_ELSE(0x900, 0x490);
++static size_t tcb_size = IF_X64_ELSE(0xc00, 0x490);
+ 
+ /* thread contol block header type from
+  * - sysdeps/x86_64/nptl/tls.h
+@@ -157,6 +157,8 @@ typedef struct _tcb_head_t {
+ 
+     ptr_uint_t stack_guard;
+     ptr_uint_t pointer_guard;
++    unsigned long int unused[2];
++    unsigned int feature_1;
+ #elif defined(AARCH64)
+     /* FIXME i#1569: This may be wrong! */
+     void *dtv;
+@@ -297,7 +299,7 @@ privload_set_pthread_tls_fields(privmod_t *mod, app_pc priv_tls_base)
+      */
+ #    define PTHREAD_TID_FUNC_NAME "pthread_mutex_consistent"
+     void (*tid_using_func)(bool) = (void (*)(bool))get_proc_address_from_os_data(
+-        &opd->os_data, opd->load_delta, PTHREAD_TID_FUNC_NAME, NULL);
++        &opd->os_data, opd->load_delta, PTHREAD_TID_FUNC_NAME, NULL, NULL);
+     if (tid_using_func == NULL)
+         return;
+     LOG(GLOBAL, LOG_LOADER, 2, "%s: decoding %s to find tid offset\n", __FUNCTION__,
+@@ -415,7 +417,8 @@ privload_copy_tls_block(privmod_t *mod, app_pc priv_tls_base, uint mod_idx)
+ void
+ privload_mod_tls_primary_thread_init(privmod_t *mod)
+ {
+-    ASSERT(!dynamo_initialized);
++    // ASSERT(!dynamo_initialized);
++
+     /* Copy ELF block for primary thread for use in init funcs (i#2751).
+      * We do this after relocs and assume reloc ifuncs don't need this:
+      * else we'd have to assume there are no relocs in the TLS blocks.
+@@ -440,6 +443,7 @@ privload_tls_init(void *app_tp)
+         app_tp);
+     dr_tp = heap_mmap(client_tls_alloc_size, MEMPROT_READ | MEMPROT_WRITE,
+                       VMM_SPECIAL_MMAP | VMM_PER_THREAD);
++    SYSLOG_INTERNAL_INFO("dr_tp: %p tcb_size: %lx\n", dr_tp, tcb_size);
+     ASSERT(APP_LIBC_TLS_SIZE + TLS_PRE_TCB_SIZE + tcb_size <= client_tls_alloc_size);
+ #if defined(AARCHXX) || defined(RISCV64)
+     /* GDB reads some pthread members (e.g., pid, tid), so we must make sure
+@@ -492,6 +496,7 @@ privload_tls_init(void *app_tp)
+     dr_tcb->self = dr_tcb;
+     /* i#555: replace app's vsyscall with DR's int0x80 syscall */
+     dr_tcb->sysinfo = (ptr_uint_t)client_int_syscall;
++    dr_tcb->feature_1 = 0; // this is currently used to say we don't have Intel CET
+ #elif defined(AARCHXX) || defined(RISCV64)
+     dr_tcb->dtv = NULL;
+     dr_tcb->private = NULL;
+diff --git a/core/unix/module.h b/core/unix/module.h
+index e341325cf..ae7b521af 100644
+--- a/core/unix/module.h
++++ b/core/unix/module.h
+@@ -83,6 +83,10 @@ typedef struct _os_module_data_t {
+     app_pc chain;           /* absolute addr of hash chain table */
+     app_pc dynsym;          /* absolute addr of .dynsym */
+     app_pc dynstr;          /* absolute addr of .dynstr */
++    app_pc versym;          /* absolute addr of .gnu.version */
++    app_pc verdef;          /* absolute addr of .gnu.version */
++    size_t verdefnum;          /* absolute addr of .gnu.version */
++    app_pc verdefstrtab;          /* absolute addr of .gnu.version */
+     size_t dynstr_size;     /* size of .dynstr */
+     size_t symentry_size;   /* size of a .dynsym entry */
+     bool has_runpath;       /* is DT_RUNPATH present? */
+@@ -168,7 +172,7 @@ extern stdfile_t **privmod_stderr;
+ extern stdfile_t **privmod_stdin;
+ 
+ /* loader.c */
+-app_pc
++DR_API app_pc
+ get_private_library_address(app_pc modbase, const char *name);
+ 
+ bool
+diff --git a/core/unix/module_elf.c b/core/unix/module_elf.c
+index c012461af..fff183482 100644
+--- a/core/unix/module_elf.c
++++ b/core/unix/module_elf.c
+@@ -283,6 +283,14 @@ module_fill_os_data(ELF_PROGRAM_HEADER_TYPE *prog_hdr, /* PT_DYNAMIC entry */
+                         out_data->symentry_size = (size_t)dyn->d_un.d_val;
+                     } else if (dyn->d_tag == DT_RUNPATH) {
+                         out_data->has_runpath = true;
++                    } else if (dyn->d_tag == DT_VERSYM) {
++                        out_data->versym = elf_dt_abs_addr(dyn, base, sz, view_size,
++                                                          load_delta, at_map, dyn_reloc);
++                    } else if (dyn->d_tag == DT_VERDEF) {
++                        out_data->verdef = elf_dt_abs_addr(dyn, base, sz, view_size,
++                                                          load_delta, at_map, dyn_reloc);
++                    } else if (dyn->d_tag == DT_VERDEFNUM) {
++                        out_data->verdefnum = (size_t)dyn->d_un.d_val;
+ #ifndef ANDROID
+                     } else if (dyn->d_tag == DT_CHECKSUM) {
+                         out_data->checksum = (size_t)dyn->d_un.d_val;
+@@ -645,9 +653,17 @@ elf_sym_matches(ELF_SYM_TYPE *sym, char *strtab, const char *name,
+ /* The new GNU hash scheme to improve lookup speed.
+  * Can't find good doc to reference here.
+  */
++
++#define VERSYM_VERSION 0x7fff
++#define VERSYM_HIDDEN 0x8000
++
++// TODO: Right now, this function does not actually deal with symbol versioning.
++// Most of the work is done, to parse symbol versions / definitions in the loaded library
++// but we don't actually return a specific symbol version (we
++// return the default version for now).
+ static app_pc
+-gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+-                char *strtab, Elf_Symndx *buckets, Elf_Symndx *chain, ELF_ADDR *bitmask,
++gnu_hash_lookup(const char *name, Elf64_Word *symver_hash, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
++                char *strtab, Elf64_Half *symvertab, Elf64_Verdef *verdef, size_t verdefnum, Elf_Symndx *buckets, Elf_Symndx *chain, ELF_ADDR *bitmask,
+                 ptr_uint_t bitidx, ptr_uint_t shift, size_t num_buckets,
+                 size_t dynstr_size, bool *is_indirect_code)
+ {
+@@ -680,8 +696,32 @@ gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+                     if (sym->st_value == 0 && ELF_ST_TYPE(sym->st_info) != STT_TLS)
+                         continue; /* no value */
+                     if (elf_sym_matches(sym, strtab, name, is_indirect_code)) {
+-                        res = (app_pc)(symtab[sidx].st_value + load_delta);
+-                        break;
++                        if (symvertab) {
++                            Elf64_Half ver = symvertab[sidx];
++                            Elf64_Word verhash = 0;
++                            for (size_t i=0; i<verdefnum; i++) {
++                                // Elf64_Verdaux *vdaux = (Elf64_Verdaux *)((char *)vd + vd->vd_aux);
++                                if (verdef->vd_ndx == (ver & VERSYM_VERSION)) {
++                                    verhash = verdef->vd_hash;
++                                    break;
++                                }
++                                verdef = (Elf64_Verdef *)((char *)verdef + verdef->vd_next);
++                            }
++
++                            if ((ver & VERSYM_HIDDEN) == 0 || ver == VER_NDX_GLOBAL) {
++                                // Default version
++                                res = (app_pc)(symtab[sidx].st_value + load_delta);
++                                LOG(GLOBAL, LOG_LOADER, 2, "%s: found %s default version %hd %d target %d\n", __func__, name, ver, verhash, symver_hash ? *symver_hash : -1);
++                                break;
++                            } else {
++                                // Non-default version
++                                LOG(GLOBAL, LOG_LOADER, 2, "%s: skip %s non-default version %hd %d target %d\n", __func__, name, ver, verhash, symver_hash ? *symver_hash : -1);
++                                if (!res) res = (app_pc)(symtab[sidx].st_value + load_delta);
++                            }
++                        } else {
++                            res = (app_pc)(symtab[sidx].st_value + load_delta);
++                            break;
++                        }
+                     }
+                 }
+             } while (!TEST(1, *harray++));
+@@ -695,12 +735,13 @@ gnu_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+  */
+ static app_pc
+ elf_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+-                char *strtab, Elf_Symndx *buckets, Elf_Symndx *chain, size_t num_buckets,
++                char *strtab, const Elf64_Half* symvertab, Elf_Symndx *buckets, Elf_Symndx *chain, size_t num_buckets,
+                 size_t dynstr_size, bool *is_indirect_code)
+ {
+     Elf_Symndx sidx;
+     Elf_Symndx hidx;
+     ELF_SYM_TYPE *sym;
++
+     app_pc res;
+ 
+     hidx = elf_hash(name);
+@@ -728,24 +769,28 @@ elf_hash_lookup(const char *name, ptr_int_t load_delta, ELF_SYM_TYPE *symtab,
+ /* get the address by using the hashtable information in os_module_data_t */
+ app_pc
+ get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t load_delta,
+-                              const char *name, DR_PARAM_OUT bool *is_indirect_code)
++                              const char *name, const char *symver, DR_PARAM_OUT bool *is_indirect_code)
+ {
+     if (os_data->hashtab != NULL) {
+         Elf_Symndx *buckets = (Elf_Symndx *)os_data->buckets;
+         Elf_Symndx *chain = (Elf_Symndx *)os_data->chain;
+         ELF_SYM_TYPE *symtab = (ELF_SYM_TYPE *)os_data->dynsym;
++        Elf64_Half *vertab = (Elf64_Half *)os_data->versym;
++        Elf64_Verdef *verdef = (Elf64_Verdef *)os_data->verdef;
++        size_t verdefnum = os_data->verdefnum;
++
+         char *strtab = (char *)os_data->dynstr;
+         size_t num_buckets = os_data->num_buckets;
+         if (os_data->hash_is_gnu) {
+             /* The new GNU hash scheme */
+-            return gnu_hash_lookup(name, load_delta, symtab, strtab, buckets, chain,
++            return gnu_hash_lookup(name, (Elf64_Word*)symver, load_delta, symtab, strtab, vertab, verdef, verdefnum, buckets, chain,
+                                    (ELF_ADDR *)os_data->gnu_bitmask,
+                                    (ptr_uint_t)os_data->gnu_bitidx,
+                                    (ptr_uint_t)os_data->gnu_shift, num_buckets,
+                                    os_data->dynstr_size, is_indirect_code);
+         } else {
+             /* ELF hash scheme */
+-            return elf_hash_lookup(name, load_delta, symtab, strtab, buckets, chain,
++            return elf_hash_lookup(name, load_delta, symtab, strtab, vertab, buckets, chain,
+                                    num_buckets, os_data->dynstr_size, is_indirect_code);
+         }
+     }
+@@ -766,7 +811,7 @@ get_proc_address_ex(module_base_t lib, const char *name,
+     ma = module_pc_lookup((app_pc)lib);
+     if (ma != NULL) {
+         res = get_proc_address_from_os_data(
+-            &ma->os_data, ma->start - ma->os_data.base_address, name, &is_ifunc);
++            &ma->os_data, ma->start - ma->os_data.base_address, name, NULL /* symver */, &is_ifunc);
+         /* XXX: for the case of is_indirect_code being true, should we call
+          * the ifunc to get the real symbol location?
+          * Current solution is:
+@@ -975,6 +1020,8 @@ module_init_os_privmod_data_from_dyn(os_privmod_data_t *opd, ELF_DYNAMIC_ENTRY_T
+         case DT_VERNEED: opd->verneed = (app_pc)(dyn->d_un.d_ptr + load_delta); break;
+         case DT_VERNEEDNUM: opd->verneednum = dyn->d_un.d_val; break;
+         case DT_VERSYM: opd->versym = (ELF_HALF *)(dyn->d_un.d_ptr + load_delta); break;
++        case DT_VERDEF: opd->verdef = (ELF_HALF *)(dyn->d_un.d_ptr + load_delta); break;
++        case DT_VERDEFNUM: opd->verdefnum = dyn->d_un.d_val;; break;
+         case DT_RELCOUNT: opd->relcount = dyn->d_un.d_val; break;
+         case DT_INIT: opd->init = (fp_t)(dyn->d_un.d_ptr + load_delta); break;
+         case DT_FINI: opd->fini = (fp_t)(dyn->d_un.d_ptr + load_delta); break;
+@@ -1057,7 +1104,7 @@ module_get_os_privmod_data(app_pc base, size_t size, bool dyn_reloc,
+     module_init_os_privmod_data_from_dyn(pd, dyn, load_delta);
+     DODEBUG({
+         if (get_proc_address_from_os_data(&pd->os_data, pd->load_delta,
+-                                          DR_DISALLOW_UNSAFE_STATIC_NAME, NULL) != NULL)
++                                          DR_DISALLOW_UNSAFE_STATIC_NAME, NULL /* symver */, NULL) != NULL)
+             disallow_unsafe_static_calls = true;
+     });
+     pd->use_app_imports = false;
+@@ -1103,7 +1150,7 @@ static app_pc
+ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
+ {
+     app_pc res;
+-    const char *name;
++    const char *name, *version;
+     bool is_ifunc;
+     dcontext_t *dcontext = get_thread_private_dcontext();
+ 
+@@ -1112,9 +1159,11 @@ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
+         return NULL;
+ 
+     name = (char *)pd->os_data.dynstr + sym->st_name;
++    version = NULL;
++    // version = pd->os_data.
+     LOG(GLOBAL, LOG_LOADER, 3, "sym lookup for %s from %s\n", name, pd->soname);
+     /* check my current module */
+-    res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, &is_ifunc);
++    res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, NULL /* symver */, &is_ifunc);
+     if (res != NULL) {
+         if (is_ifunc) {
+             TRY_EXCEPT_ALLOW_NO_DCONTEXT(
+@@ -1167,7 +1216,7 @@ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
+             LOG(GLOBAL, LOG_LOADER, 3, "NOT using libpthread's non-pthread symbol\n");
+             res = NULL;
+         } else {
+-            res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name,
++            res = get_proc_address_from_os_data(&pd->os_data, pd->load_delta, name, NULL /* symver */,
+                                                 &is_ifunc);
+         }
+         if (res != NULL) {
+diff --git a/core/unix/module_macho.c b/core/unix/module_macho.c
+index dbda64f13..c4fca5b16 100644
+--- a/core/unix/module_macho.c
++++ b/core/unix/module_macho.c
+@@ -359,7 +359,7 @@ read_uleb128(byte *start, byte *max, byte **next_entry DR_PARAM_OUT)
+ 
+ app_pc
+ get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t load_delta,
+-                              const char *name, DR_PARAM_OUT bool *is_indirect_code)
++                              const char *name, const char *symver, DR_PARAM_OUT bool *is_indirect_code)
+ {
+     /* Walk the Mach-O export trie.  We don't support < 10.6 which is when
+      * they put this scheme in place.
+@@ -480,7 +480,7 @@ get_proc_address_ex(module_base_t lib, const char *name,
+                                                  */
+                                                 (ptr_int_t)ma->start
+                                                 : ma->start - ma->os_data.base_address,
+-                                            name, is_indirect_code);
++                                            name, NULL /* symver */, is_indirect_code);
+     }
+     os_get_module_info_unlock();
+     LOG(GLOBAL, LOG_SYMBOLS, 2, "%s: %s => " PFX "\n", __func__, name, res);
+diff --git a/core/unix/module_private.h b/core/unix/module_private.h
+index abf142494..aa686f870 100644
+--- a/core/unix/module_private.h
++++ b/core/unix/module_private.h
+@@ -72,6 +72,8 @@ struct _os_privmod_data_t {
+     int verneednum;
+     int relcount;
+     ELF_HALF *versym;
++    ELF_HALF *verdef;
++    int verdefnum;
+ #else
+     /* XXX i#1285: MacOS private loader NYI */
+ #endif
+@@ -123,7 +125,7 @@ module_get_text_section(app_pc file_map, size_t file_size);
+ 
+ app_pc
+ get_proc_address_from_os_data(os_module_data_t *os_data, ptr_int_t delta,
+-                              const char *name, bool *is_indirect_code DR_PARAM_OUT);
++                              const char *name, const char *symver, bool *is_indirect_code DR_PARAM_OUT);
+ 
+ bool
+ privload_redirect_sym(os_privmod_data_t *opd, ptr_uint_t *r_addr, const char *name);
+diff --git a/core/unix/os.c b/core/unix/os.c
+index 9d9becdb1..e11241c6a 100644
+--- a/core/unix/os.c
++++ b/core/unix/os.c
+@@ -3792,6 +3792,7 @@ os_thread_sleep(uint64 milliseconds)
+         /* not unusual for client threads to use itimers and have their run
+          * routine sleep forever
+          */
++
+         if (count++ > 3 && !IS_CLIENT_THREAD(get_thread_private_dcontext())) {
+             ASSERT_CURIOSITY_ONCE(
+                 false && "os_thread_sleep interrupted by signal more than 3 times.");
+@@ -3880,6 +3881,7 @@ os_thread_suspend(thread_record_t *tr)
+         if (ksynch_wait(&ostd->suspended, 0, SUSPEND_DEBUG_TIMEOUT_MS) == -ETIMEDOUT) {
+             ASSERT_CURIOSITY(false && "failed to suspend thread in 5s");
+         }
++        LOG(GLOBAL, LOG_SYNCH, 2, "os_thread_suspend: suspended = %d for thread %d\n", ksynch_get_value(&ostd->suspended), tr->id);
+         if (ksynch_get_value(&ostd->suspended) == 0) {
+             /* If it still has to wait, give up the cpu. */
+             os_thread_yield();
+diff --git a/core/unix/os_exports.h b/core/unix/os_exports.h
+index 8ff151591..4aa289c75 100644
+--- a/core/unix/os_exports.h
++++ b/core/unix/os_exports.h
+@@ -309,6 +309,7 @@ dynamorio_set_envp(char **envp);
+ /* drinjectlib wants the libc version while the core wants the private version */
+ #    define getenv our_getenv
+ #endif
++DR_API
+ char *
+ our_getenv(const char *name);
+ 
+diff --git a/core/unix/preload.c b/core/unix/preload.c
+index 934e71546..2b4d65214 100644
+--- a/core/unix/preload.c
++++ b/core/unix/preload.c
+@@ -137,7 +137,7 @@ take_over(const char *pname)
+     return true;
+ }
+ 
+-int
++__attribute__((constructor)) int
+ #if INIT_BEFORE_LIBC
+ _init(int argc, char *arg0, ...)
+ {
+@@ -167,15 +167,17 @@ _init(int argc, char **argv, char **envp)
+ 
+ #if START_DYNAMO
+     pf("ready to start dynamo\n");
++
++    /* i#46: Get env from loader directly. */
++    dynamorio_set_envp(envp);
++
+     name = get_application_short_name();
+     pf("preload _init: running %s\n", name);
+     if (!take_over(name))
+         return 0;
+-    /* i#46: Get env from loader directly. */
+-    dynamorio_set_envp(envp);
+-    /* FIXME i#287/PR 546544: now load DYNAMORIO_AUTOINJECT DR .so
+-     * and only LD_PRELOAD the preload lib itself
+-     */
++        /* FIXME i#287/PR 546544: now load DYNAMORIO_AUTOINJECT DR .so
++         * and only LD_PRELOAD the preload lib itself
++         */
+ #    if VERBOSE
+     int init =
+ #    endif
+diff --git a/core/unix/rseq_linux.c b/core/unix/rseq_linux.c
+index 08fad6198..0a2d5e450 100644
+--- a/core/unix/rseq_linux.c
++++ b/core/unix/rseq_linux.c
+@@ -254,12 +254,14 @@ rseq_clear_tls_ptr(dcontext_t *dcontext)
+ {
+     ASSERT(rseq_tls_offset != 0);
+     byte *base = get_app_segment_base(LIB_SEG_TLS);
+-    struct rseq *app_rseq = (struct rseq *)(base + rseq_tls_offset);
+-    /* We're directly writing this in the cache, so we do not bother with safe_read
+-     * or safe_write here either.  We already cannot handle rseq adversarial cases.
+-     */
+-    if (is_dynamo_address((byte *)(ptr_uint_t)app_rseq->rseq_cs))
+-        app_rseq->rseq_cs = 0;
++    if (base > 0) {
++        struct rseq *app_rseq = (struct rseq *)(base + rseq_tls_offset);
++        /* We're directly writing this in the cache, so we do not bother with safe_read
++         * or safe_write here either.  We already cannot handle rseq adversarial cases.
++         */
++        if (is_dynamo_address((byte *)(ptr_uint_t)app_rseq->rseq_cs))
++            app_rseq->rseq_cs = 0;
++    }
+ }
+ 
+ int
+diff --git a/core/unix/signal_macos.c b/core/unix/signal_macos.c
+index db6d1c357..3376811da 100644
+--- a/core/unix/signal_macos.c
++++ b/core/unix/signal_macos.c
+@@ -157,8 +157,9 @@ sigcontext_to_mcontext_simd(priv_mcontext_t *mc, sig_full_cxt_t *sc_full)
+         return;
+     mc->fpsr = fpc->__fpsr;
+     mc->fpcr = fpc->__fpcr;
+-    ASSERT(sizeof(mc->simd) == sizeof(fpc->__v));
+-    memcpy(&mc->simd, &fpc->__v, sizeof(mc->simd));
++    for (int i = 0; i < proc_num_simd_registers(); i++) {
++        memcpy(&mc->simd[i], &fpc->__v[i], sizeof(fpc->__v[i]));
++    }
+ #elif defined(X86)
+     /* We assume that _STRUCT_X86_FLOAT_STATE* matches exactly the first
+      * half of _STRUCT_X86_AVX_STATE*, and similarly for AVX and AVX512.
+@@ -200,8 +201,9 @@ mcontext_to_sigcontext_simd(sig_full_cxt_t *sc_full, priv_mcontext_t *mc)
+         return;
+     fpc->__fpsr = mc->fpsr;
+     fpc->__fpcr = mc->fpcr;
+-    ASSERT(sizeof(mc->simd) == sizeof(fpc->__v));
+-    memcpy(&fpc->__v, &mc->simd, sizeof(mc->simd));
++    for (int i = 0; i < proc_num_simd_registers(); i++) {
++        memcpy(&fpc->__v[i], &mc->simd[i], sizeof(fpc->__v[i]));
++    }
+ #elif defined(X86)
+     sigcontext_t *sc = sc_full->sc;
+     int i;
+diff --git a/ext/drx/drx.c b/ext/drx/drx.c
+index f5b9d25dd..5be4e9d7c 100644
+--- a/ext/drx/drx.c
++++ b/ext/drx/drx.c
+@@ -71,7 +71,7 @@
+ #    define IF_WINDOWS_ELSE(x, y) (y)
+ #endif
+ 
+-#if defined(X86) || defined(AARCH64)
++#if (defined(X86) || defined(AARCH64)) && !defined(MACOS)
+ #    define PLATFORM_SUPPORTS_SCATTER_GATHER
+ #endif
+ 

@@ -35,11 +35,11 @@ RUN mkdir /opt/custom-python/ && \
 ARG PYDA_DEBUG=0
 
 # install dynamorio
-COPY patches/dynamorio-10.0.patch /tmp
-RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_10.0.0  && \
+COPY patches/dynamorio-11.2.patch /tmp
+RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_11.2.0  && \
       cd /opt/dynamorio/ && \
-      git apply /tmp/dynamorio-10.0.patch && \
-      rm /tmp/dynamorio-10.0.patch && \
+      git apply /tmp/dynamorio-11.2.patch && \
+      rm /tmp/dynamorio-11.2.patch && \
       mkdir /opt/dynamorio-install/ && \
       mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ ..' && \
       make -j && make install && \
