@@ -8,7 +8,10 @@
 #include "privload.h"
 #include "Python.h"
 #include "util.h"
+
+#ifdef LINUX
 #include <sys/auxv.h>
+#endif
 
 // These are used by python as shims to dynamorio-safe pthread functions
 
@@ -164,6 +167,7 @@ int pyda_thread_detach(pthread_t thread) {
     return 0;
 }
 
+#ifdef LINUX
 
 extern size_t os_minsigstksz(void);
 unsigned long pyda_getauxval(unsigned long type) {
@@ -173,6 +177,8 @@ unsigned long pyda_getauxval(unsigned long type) {
     }
     return getauxval(type);
 }
+
+#endif
 
 int pyda_attach_mode;
 

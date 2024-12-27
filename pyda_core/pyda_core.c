@@ -3,7 +3,12 @@
 #include "pyda_threads.h"
 #include "util.h"
 #include <fcntl.h>
+
+#ifdef LINUX
 #include <pty.h>
+#elif MACOS
+#include <util.h>
+#endif
 
 #define CONTEXT_STACK_LIMIT 10
 
@@ -50,11 +55,11 @@ pyda_process* pyda_mk_process() {
     // Setup locks, etc.
     pthread_condattr_t condattr;
     int ret;
-    if (ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED)) {
+    if ((ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED))) {
         dr_fprintf(STDERR, "pthread_condattr_setpshared failed: %d\n", ret);
         dr_abort();
     }
-    if (ret = pthread_cond_init(&proc->thread_exit_cond, &condattr)) {
+    if ((ret = pthread_cond_init(&proc->thread_exit_cond, &condattr))) {
         dr_fprintf(STDERR, "pthread_cond_init failed %d\n", ret);
         dr_abort();
     }
@@ -63,7 +68,7 @@ pyda_process* pyda_mk_process() {
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);
     pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-    if (ret = pthread_mutex_init(&proc->refcount_mutex, &attr)) {
+    if ((ret = pthread_mutex_init(&proc->refcount_mutex, &attr))) {
         dr_fprintf(STDERR, "pthread_mutex_init failed %d\n", ret);
         dr_abort();
     }
@@ -122,9 +127,11 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
         }
 
         // Try to make a larger pipe (1M)
+#ifdef LINUX
         if (fcntl(pipe1[0], F_SETPIPE_SZ, 1024*1024) || fcntl(pipe2[0], F_SETPIPE_SZ, 1024*1024) || fcntl(pipe3[0], F_SETPIPE_SZ, 1024*1024)) {
             DEBUG_PRINTF("Failed to set pipe size to 1M\n");
         }
+#endif
 
         dup2(pipe1[0], 0);
         dup2(pipe2[1], 1);
@@ -172,11 +179,11 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     pthread_condattr_t condattr;
     pthread_condattr_init(&condattr);
     int ret;
-    if (ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED)) {
+    if ((ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED))) {
         dr_fprintf(STDERR, "pthread_condattr_setpshared failed: %d\n", ret);
         dr_abort();
     }
-    if (ret = pthread_cond_init(&thread->resume_cond, &condattr)) {
+    if ((ret = pthread_cond_init(&thread->resume_cond, &condattr))) {
         dr_fprintf(STDERR, "pthread_cond_init failed %d\n", ret);
         dr_abort();
     }
@@ -203,7 +210,7 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
 
     thread->yield_count = 0;
 
-    static volatile unsigned int tid = 0;
+    static volatile int tid = 0;
     thread->tid = dr_atomic_add32_return_sum(&tid, 1);
     thread->rip_updated_in_python = 0;
     thread->skip_next_hook = 0;

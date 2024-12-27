@@ -14,7 +14,11 @@ if (NOT Python3_FOUND)
 endif(NOT Python3_FOUND)
 
 target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS})
-target_link_libraries(tool ${Python3_LIBRARIES} unwind)
+if (APPLE)
+  target_link_libraries(tool ${Python3_LIBRARIES})
+else()
+  target_link_libraries(tool ${Python3_LIBRARIES} unwind)
+endif()
 target_compile_options(tool PUBLIC -DPYDA_DYNAMORIO_CLIENT -Werror)
 
 configure_DynamoRIO_client(tool)

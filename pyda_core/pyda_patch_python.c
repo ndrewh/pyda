@@ -22,7 +22,9 @@ static redirect_import_t python_redirect_imports[] = {
     { "pthread_detach", (app_pc)pyda_thread_detach },
     { "dlopen", (app_pc)pyda_dlopen },
     { "dlsym", (app_pc)pyda_dlsym },
+#ifdef LINUX
     { "getauxval", (app_pc)pyda_getauxval },
+#endif
     { "getenv", (app_pc)pyda_getenv }
 };
 

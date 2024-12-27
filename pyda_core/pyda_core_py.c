@@ -514,7 +514,7 @@ PydaProcess_get_register(PyObject *self, PyObject *args) {
 
     // Convert to decimal string
     char buf[64];
-    if (snprintf(buf, sizeof(buf), "0x%lx%lx", val[1], val[0]) >= sizeof(buf)) {
+    if (snprintf(buf, sizeof(buf), "0x%" PRIx64 "%" PRIx64, val[1], val[0]) >= sizeof(buf)) {
         PyErr_SetString(PyExc_RuntimeError, "Internal error: reg buffer too small");
         return NULL;
     }
