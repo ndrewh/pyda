@@ -28,7 +28,7 @@ RUN mkdir /opt/custom-python/ && \
       mv /tmp/cpython-3.10.12.patch /opt/custom-python/cpython-3.10.12/ && \
       cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch && \
       cd /opt/custom-python/cpython-3.10.12/ && \
-      ./configure --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto && \
+      bash -c './configure $([ "$PYDA_DEBUG" == "1" ] && echo "" || echo "--enable-optimizations") --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto' && \
       make install -j && \
       rm -rf /opt/custom-python/
 
