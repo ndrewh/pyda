@@ -1,7 +1,7 @@
 #include "pyda_core_py.h"
 #include "pyda_core.h"
 #include "pyda_threads.h"
-#include "util.h"
+#include "pyda_util.h"
 
 #ifdef PYDA_DYNAMORIO_CLIENT
 #include "dr_api.h"

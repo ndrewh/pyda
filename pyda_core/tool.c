@@ -6,7 +6,7 @@
 #include "dr_tools.h"
 #include "drmgr.h"
 #include "Python.h"
-#include "util.h"
+#include "pyda_util.h"
 
 #include <signal.h>
 
@@ -122,7 +122,9 @@ void thread_init_event(void *drcontext) {
     drmgr_set_tls_field(drcontext, g_pyda_tls_is_python_thread_idx, (void*)0);
 
     // some init that python requires(?)
+#ifdef LINUX
     __ctype_init();
+#endif
 
     if (global_proc->main_thread->python_exited) {
         t->errored = 1;
@@ -210,6 +212,7 @@ void python_init() {
     is_init = true;
 
     DEBUG_PRINTF("python_init\n");
+    // sleep(10);
     wchar_t *program = Py_DecodeLocale("program_name", NULL);
     if (program == NULL) {
         DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
@@ -424,6 +427,7 @@ static void thread_entrypoint_break() {
     DEBUG_PRINTF("[PYDA] Main thread at entrypiont %ld\n", t->tid);
 
     pyda_initial_break(t);
+    DEBUG_PRINTF("entrypoint break end\n");
     if (pyda_flush_hooks()) {
         DEBUG_PRINTF("entrypoint: flush hooks\n");
 
@@ -456,6 +460,7 @@ void python_main_thread(void *arg) {
     }
 
     DEBUG_PRINTF("Running script...\n");
+    /* sleep(10); */
 
     if (!script_name) {
         dr_fprintf(STDERR, "[Pyda] Error: Script not specified\n");
@@ -497,6 +502,7 @@ python_exit:
         if (!t->signal)
             dr_fprintf(STDERR, "[Pyda] ERROR: Did you forget to call p.run()?\n");
 
+        DEBUG_PRINTF("Implicit pyda_yield start\n");
         pyda_yield(t); // unblock (note: blocking)
         DEBUG_PRINTF("Implicit pyda_yield finished\n");
     }

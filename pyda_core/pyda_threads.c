@@ -5,9 +5,8 @@
 #include "dr_api.h"
 #include "dr_tools.h"
 #include "drmgr.h"
-#include "privload.h"
 #include "Python.h"
-#include "util.h"
+#include "pyda_util.h"
 
 #ifdef LINUX
 #include <sys/auxv.h>
@@ -46,12 +45,16 @@ int pyda_cond_init(pthread_cond_t *condvar, const pthread_condattr_t *attr) {
     // DEBUG_PRINTF("pthread_cond_init %p\n", condvar);
     int res;
     if (attr) {
+#ifdef LINUX
         pthread_condattr_setpshared((pthread_condattr_t*)attr, PTHREAD_PROCESS_SHARED);
+#endif
         res = pthread_cond_init(condvar, attr);
     } else {
         pthread_condattr_t attr2;
         pthread_condattr_init(&attr2);
+#ifdef LINUX
         pthread_condattr_setpshared(&attr2, PTHREAD_PROCESS_SHARED);
+#endif
         res = pthread_cond_init(condvar, &attr2);
         pthread_condattr_destroy(&attr2);
     }
@@ -68,39 +71,20 @@ int pyda_cond_signal(pthread_cond_t *condvar) {
     return pthread_cond_signal(condvar);
 }
 
-void* pyda_dlopen(const char *filename, int flag) {
-    void *drcontext = dr_get_current_drcontext();
-    // DEBUG_PRINTF("pyda_dlopen %s\n", filename);
-    // DR_ASSERT(IS_CLIENT_THREAD(drcontext));
-    if (filename == NULL) {
-        void *retaddr = __builtin_return_address(0);
-        privmod_t *mod = privload_lookup_by_pc_takelock(retaddr);
-        if (mod != NULL)
-            return mod->base;
-        else
-            return NULL;
-    } else {
-        return locate_and_load_private_library(filename, true);
-    }
-}
-
-void* pyda_dlsym(void *handle, const char *symbol) {
-    void *drcontext = dr_get_current_drcontext();
-    // DEBUG_PRINTF("pyda_dlsym %s\n", symbol);
-    // DR_ASSERT(IS_CLIENT_THREAD(drcontext));
-    return get_private_library_address(handle, symbol);
-}
-
 int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
     // DEBUG_PRINTF("pthread_mutex_init %p\n", mutex);
     int res;
     if (attr) {
+#ifdef LINUX
         pthread_mutexattr_setpshared((pthread_mutexattr_t*)attr, PTHREAD_PROCESS_SHARED);
+#endif
         res = pthread_mutex_init(mutex, attr);
     } else {
         pthread_mutexattr_t attr2;
         pthread_mutexattr_init(&attr2);
+#ifdef LINUX
         pthread_mutexattr_setpshared(&attr2, PTHREAD_PROCESS_SHARED);
+#endif
         res = pthread_mutex_init(mutex, &attr2);
         pthread_mutexattr_destroy(&attr2);
     }
@@ -120,7 +104,9 @@ void* pyda_thread_self() {
 
 extern void __ctype_init();
 void* python_thread_init(void *pyda_thread) {
+#ifdef LINUX
     __ctype_init();
+#endif
 
     void *drcontext = dr_get_current_drcontext();
     void *tls = dr_thread_alloc(drcontext, sizeof(void*) * 130);
@@ -184,14 +170,9 @@ int pyda_attach_mode;
 
 extern const char *our_getenv(const char *name);
 const char *pyda_getenv(const char *name) {
-    if (pyda_attach_mode || true) {
-        // Dynamorio does not have the correct ENV in attach mode.
-        DEBUG_PRINTF("getenv2 %s=%s\n", name, getenv(name));
-        return getenv(name);
-    } else {
-        DEBUG_PRINTF("getenv %s=%s\n", name, our_getenv(name));
-        return our_getenv(name);
-    }
+    // Dynamorio does not have the correct ENV in attach mode.
+    DEBUG_PRINTF("getenv2 %s=%s\n", name, getenv(name));
+    return getenv(name);
 }
 
 void parse_proc_environ() {

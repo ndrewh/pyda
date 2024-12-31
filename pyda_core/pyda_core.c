@@ -1,12 +1,12 @@
 
 #include "pyda_core.h"
 #include "pyda_threads.h"
-#include "util.h"
+#include "pyda_util.h"
 #include <fcntl.h>
 
-#ifdef LINUX
+#if defined(LINUX)
 #include <pty.h>
-#elif MACOS
+#elif defined(MACOS)
 #include <util.h>
 #endif
 
@@ -55,10 +55,14 @@ pyda_process* pyda_mk_process() {
     // Setup locks, etc.
     pthread_condattr_t condattr;
     int ret;
+    pthread_condattr_init(&condattr);
+
+#ifdef LINUX
     if ((ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED))) {
         dr_fprintf(STDERR, "pthread_condattr_setpshared failed: %d\n", ret);
         dr_abort();
     }
+#endif // LINUX
     if ((ret = pthread_cond_init(&proc->thread_exit_cond, &condattr))) {
         dr_fprintf(STDERR, "pthread_cond_init failed %d\n", ret);
         dr_abort();
@@ -67,7 +71,14 @@ pyda_process* pyda_mk_process() {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);
-    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+
+#ifdef LINUX
+    if ((ret = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED))) {
+        dr_fprintf(STDERR, "pthread_mutexattr_setpshared failed %d\n", ret);
+        dr_abort();
+    }
+#endif
+
     if ((ret = pthread_mutex_init(&proc->refcount_mutex, &attr))) {
         dr_fprintf(STDERR, "pthread_mutex_init failed %d\n", ret);
         dr_abort();
@@ -179,10 +190,13 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     pthread_condattr_t condattr;
     pthread_condattr_init(&condattr);
     int ret;
+
+#ifdef LINUX
     if ((ret = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED))) {
         dr_fprintf(STDERR, "pthread_condattr_setpshared failed: %d\n", ret);
         dr_abort();
     }
+#endif // LINUX
     if ((ret = pthread_cond_init(&thread->resume_cond, &condattr))) {
         dr_fprintf(STDERR, "pthread_cond_init failed %d\n", ret);
         dr_abort();
@@ -196,7 +210,9 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_NORMAL);
+#ifdef LINUX
     pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+#endif
     pthread_mutex_init(&thread->mutex, &attr);
 
     // Start with it locked...

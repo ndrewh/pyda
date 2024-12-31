@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.22)
 
 add_compile_definitions(PYDA_VERSION="${CMAKE_PROJECT_VERSION}")
 
-add_library(tool SHARED tool.c pyda_core_py.c pyda_core.c pyda_threads.c pyda_unwind.c pyda_patch_python.c)
+if (APPLE)
+  add_library(tool SHARED tool.c pyda_core_py.c pyda_core.c pyda_threads.c pyda_unwind.c pyda_patch_python.c macos/pyda_threads_macos.c macos/macho.c)
+else()
+  add_library(tool SHARED tool.c pyda_core_py.c pyda_core.c pyda_threads.c pyda_unwind.c pyda_patch_python.c linux/pyda_threads_linux.c)
+endif()
+
 find_package(DynamoRIO)
 if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
@@ -13,7 +18,7 @@ if (NOT Python3_FOUND)
   message(FATAL_ERROR "Python required to build")
 endif(NOT Python3_FOUND)
 
-target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS})
+target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS} include/)
 if (APPLE)
   target_link_libraries(tool ${Python3_LIBRARIES})
 else()

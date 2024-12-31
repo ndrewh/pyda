@@ -1,4 +1,7 @@
 
+#include "dr_api.h"
+#include "dr_tools.h"
+#include "drmgr.h"
 app_pc locate_and_load_private_library(const char *name, bool reachable);
 app_pc get_private_library_address(void *handle, const char *symbol);
 
