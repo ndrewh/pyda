@@ -3,17 +3,59 @@ from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
 import string
 import sys
-import lief
+import subprocess, re
+
+def parse_text_stubs(binary_path: str):
+    stubs = {}
+
+    cmd = ["otool", "-Iv", binary_path]
+    vaddr_cmd = f"otool -l {binary_path} | grep -A 4 '__TEXT'"
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result2 = subprocess.run(vaddr_cmd, capture_output=True, text=True, check=True, shell=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Error running otool: {e}")
+
+    output = result.stdout
+    stubs_section = False
+    symbols = []
+
+    base_addr = None
+    for l in result2.stdout.split("\n"):
+        parts = l.split()
+        if len(parts) >= 2 and parts[0] == "vmaddr":
+            base_addr = int(parts[1], 16)
+            break
+
+    for line in output.split('\n'):
+        if "__TEXT,__stubs" in line:
+            stubs_section = True
+            continue
+        elif "__DATA" in line:  # Stop when we hit the DATA section
+            break
+
+        if stubs_section and line.strip():
+            # Skip header line
+            if "address" in line:
+                continue
+
+            # Parse symbol entries
+            match = re.match(r"(0x[0-9a-fA-F]+)\s+(\d+)\s+(.+)", line)
+            if match:
+                address = int(match.group(1), 16) - base_addr
+                index = int(match.group(2))
+                name = match.group(3)
+                stubs[address] = name
+
+    return stubs
+
 
 p = process()
 
-e = lief.parse(p.exe_path)
 base = p.maps[p.exe_path].base
+plt_map = { addr + base: name for (addr, name) in parse_text_stubs(p.exe_path).items() }
 
-stubs_section = next((section for section in e.sections 
-                     if section.name == "__stubs"), None)
-
-plt_map = { i * 0xc + stubs_section.offset + base: x.name for (i, x) in enumerate(e.imported_functions) }
+print({ hex(x): y for (x, y) in plt_map.items() })
 
 def guess_arg(x):
     printable_chars = bytes(string.printable, 'ascii')
