@@ -1,4 +1,3 @@
-
 #include "pyda_core.h"
 #include "pyda_threads.h"
 #include "pyda_util.h"
@@ -245,6 +244,8 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
     drvector_append(&proc->threads, thread);
     drvector_append(&proc->thread_run_untils, NULL);
 
+    thread->expr_builder = NULL;
+
     // PyErr_SetString(PyExc_RuntimeError, "OK");
     return thread;
 }
@@ -378,20 +379,14 @@ PyObject *pyda_run_until(pyda_thread *proc, uint64_t addr) {
     return NULL;
 }
 
-void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback) {
+void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type) {
     pyda_hook *cb = dr_global_alloc(sizeof(pyda_hook));
     cb->py_func = callback;
-
-    Py_INCREF(callback);
-    DEBUG_PRINTF("pyda_add_hook %p %p for %llx\n", cb, cb->py_func, addr);
-
-    cb->callback_type = 0;
+    cb->callback_type = callback_type;
     cb->addr = (void*)addr;
 
-
-    // void *drcontext = dr_get_current_drcontext();
-    // dr_where_am_i_t whereami = dr_where_am_i(drcontext, (void*)addr, NULL);
-    // DEBUG_PRINTF("Hook is in %lu\n", whereami);
+    Py_INCREF(callback);
+    DEBUG_PRINTF("pyda_add_hook %p %p for %llx (type=%d)\n", cb, cb->py_func, addr, callback_type);
 
     if (!hashtable_add(&p->callbacks, (void*)addr, cb)) {
         dr_global_free(cb, sizeof(pyda_hook));
@@ -399,7 +394,6 @@ void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback) {
         dr_abort();
     }
 
-    
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     drvector_append(&t->hook_update_queue, (void*)addr);
 }
@@ -494,12 +488,7 @@ int pyda_flush_hooks() {
 }
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr) {
     pyda_hook *cb = (void*)hashtable_lookup(&p->callbacks, addr);
-
-    if (cb && cb->callback_type == 0) {
-        return cb;
-    }
-
-    return NULL;
+    return cb;  // Return callback regardless of type, let caller handle type checking
 }
 
 void *pyda_get_run_until(pyda_thread *t) {
@@ -740,6 +729,45 @@ int pyda_pop_context(pyda_thread *t) {
     free_context(t->context_stack.array[t->context_stack.entries]);
     drvector_unlock(&t->context_stack);
     return 1;
+}
+
+extern PyTypeObject PydaExprBuilder_Type;
+
+void pyda_handle_advanced_hook(instrlist_t *bb, instr_t *instr, pyda_hook *callback) {
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    
+    // Initialize expression builder
+    t->expr_builder = exprbuilder_init();
+
+    // Create Python wrapper for builder
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    
+    PydaExprBuilder *py_builder = PyObject_New(PydaExprBuilder, &PydaExprBuilder_Type);
+    if (!py_builder) {
+        PyErr_Print();
+        goto cleanup;
+    }
+    py_builder->builder = t->expr_builder;
+
+    // Call the Python callback
+    PyObject *result = PyObject_CallFunctionObjArgs(callback->py_func, py_builder, NULL);
+    if (result) {
+        Py_DECREF(result);
+    } else {
+        dr_fprintf(STDERR, "Error in advanced hook at %p\n", callback->addr);
+        PyErr_Print();
+    }
+
+    Py_DECREF(py_builder);
+
+    exprbuilder_compile(t->expr_builder, bb, instr);
+
+cleanup:
+    // Cleanup
+    exprbuilder_delete(t->expr_builder);
+    t->expr_builder = NULL;
+    
+    PyGILState_Release(gstate);
 }
 
 #endif

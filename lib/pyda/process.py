@@ -17,6 +17,7 @@ class Process(ProcessTube):
             super().__init__(None, None)
 
         self._hooks = {}
+        self._builder_hooks = {}
         self._syscall_pre_hooks = {}
         self._syscall_post_hooks = {}
         self._registered_syscall_pre_hook = False
@@ -52,9 +53,10 @@ class Process(ProcessTube):
                 h(self, syscall_num)
 
     def hook(self, addr, callback, priority=False):
+        assert addr not in self._builder_hooks
         if addr not in self._hooks:
             hook_wrapper = lambda p: self._hook_dispatch(addr)
-            self._p.register_hook(addr, hook_wrapper)
+            self._p.register_hook(addr, hook_wrapper, 0)
 
             self._hooks[addr] = deque([callback])
         else:
@@ -70,7 +72,16 @@ class Process(ProcessTube):
 
         if (callback is None or len(self._hooks[addr]) == 0) and unregister:
             del self._hooks[addr]
+            del self._builder_hooks[addr]
             self._p.unregister_hook(addr)
+
+    def builder_hook(self, addr, builder):
+        if addr in self._builder_hooks:
+            raise RuntimeError("Only one builder hook can be registered per address")
+        assert addr not in self._hooks
+
+        self._builder_hooks[addr] = builder
+        self._p.register_hook(addr, builder, 1)
 
     def hook_after_call(self, addr, callback):
         def call_hook(p):

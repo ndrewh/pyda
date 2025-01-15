@@ -20,6 +20,8 @@ static PyObject *pyda_list_modules(PyObject *self, PyObject *noarg);
 static PyObject *pyda_get_base(PyObject *self, PyObject *args);
 static PyObject *pyda_get_module_for_addr(PyObject *self, PyObject *args);
 static PyObject *pyda_get_current_thread_id(PyObject *self, PyObject *noarg);
+static PyObject *pyda_core_expr(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject *pyda_core_free_expr(PyObject *self, PyObject *args, PyObject *kwargs);
 
 static void PydaProcess_dealloc(PydaProcess *self);
 static PyObject *PydaProcess_run(PyObject *self, PyObject *noarg);
@@ -42,6 +44,11 @@ static PyObject *PydaProcess_push_state(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_pop_state(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_backtrace(PyObject *self, PyObject *noarg);
 
+static void PydaExprBuilder_dealloc(PydaExprBuilder *self);
+static PyObject *PydaExprBuilder_get_register(PyObject *self, PyObject *args);
+static PyObject *PydaExprBuilder_set_register(PyObject *self, PyObject *args);
+
+
 static PyMethodDef PydaGlobalMethods[] = {
     {"process",  (PyCFunction)pyda_core_process, METH_KEYWORDS | METH_VARARGS,
      "Start a process."},
@@ -55,6 +62,10 @@ static PyMethodDef PydaGlobalMethods[] = {
      "Get current thread id, numbered from 1"},
     {"free",  (PyCFunction)pyda_core_free, METH_KEYWORDS | METH_VARARGS,
      "Call into the allocator used by the rest of the tool."},
+    {"expr",  (PyCFunction)pyda_core_expr, METH_KEYWORDS | METH_VARARGS,
+     "Create a new expression. May be abstract (e.g. representing a register value) or concrete (e.g. representing an integer constant)."},
+    {"free_expr",  (PyCFunction)pyda_core_free_expr, METH_KEYWORDS | METH_VARARGS,
+     "Free an expression and its children if refcount reaches 0."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -71,6 +82,61 @@ static PyObject *MemoryError;
 static PyObject *ThreadExitError;
 static PyObject *InvalidStateError;
 static PyObject *FatalSignalError;
+
+static PyMethodDef PydaExprBuilder_methods[] = {
+    {"get_register", (PyCFunction)PydaExprBuilder_get_register, METH_VARARGS,
+     "Get a register value"},
+    {"set_register", (PyCFunction)PydaExprBuilder_set_register, METH_VARARGS,
+     "Set a register to an expression"},
+    {NULL}  /* Sentinel */
+};
+
+PyTypeObject PydaExprBuilder_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "pyda_core.ExprBuilder",
+    .tp_doc = "Expression Builder object",
+    .tp_basicsize = sizeof(PydaExprBuilder),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor)PydaExprBuilder_dealloc,
+    .tp_methods = PydaExprBuilder_methods,
+};
+
+static PyMethodDef PydaProcessMethods[] = {
+    {"run",  PydaProcess_run, METH_NOARGS, "Run"},
+    {"run_until_pc",  PydaProcess_run_until_pc, METH_VARARGS, "Run until PC is reached"},
+    {"run_until_io",  PydaProcess_run_until_io, METH_NOARGS, "Run until IO syscall"},
+    {"capture_io", PydaProcess_capture_io, METH_NOARGS, "Capture IO -- returns IO fds"},
+    {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
+    {"unregister_hook",  PydaProcess_unregister_hook, METH_VARARGS, "Un-register a hook"},
+    {"set_thread_init_hook",  PydaProcess_set_thread_init_hook, METH_VARARGS, "Register thread init hook"},
+    {"get_register",  PydaProcess_get_register, METH_VARARGS, "Get a specific register"},
+    {"set_register",  PydaProcess_set_register, METH_VARARGS, "Set a specific register"},
+    {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
+    {"read",  PydaProcess_read, METH_VARARGS, "Read memory"},
+    {"write",  PydaProcess_write, METH_VARARGS, "Write memory"},
+    {"exited",  PydaProcess_exited, METH_NOARGS, "Check if thread has exited"},
+    // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
+    {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
+    {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
+    {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
+    {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
+    {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (array of tuples)"},
+    {NULL, NULL, 0, NULL}        /* Sentinel */
+};
+
+static PyTypeObject PydaProcess_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "custom.Custom",
+    .tp_doc = PyDoc_STR("Custom objects"),
+    .tp_basicsize = sizeof(PydaProcess),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor)PydaProcess_dealloc,
+    .tp_methods = PydaProcessMethods,
+};
 
 static void register_exception(PyObject *mod, PyObject **target, const char *fullname, const char *name) {
     *target = PyErr_NewException(fullname, NULL, NULL);
@@ -166,46 +232,24 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "REG_ARG6", DR_REG_R5);
 #endif
 
+    // Add expression type constants
+    PyModule_AddIntConstant(m, "EXPR_TYPE_CONST", EXPR_TYPE_CONST);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_ADD", EXPR_TYPE_ADD);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_SUB", EXPR_TYPE_SUB);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_MUL", EXPR_TYPE_MUL);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_DIV", EXPR_TYPE_DIV);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_LOAD", EXPR_TYPE_LOAD);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_STORE", EXPR_TYPE_STORE);
+
+    // Initialize ExprBuilder type
+    if (PyType_Ready(&PydaExprBuilder_Type) < 0)
+        return NULL;
+
+    if (PyType_Ready(&PydaProcess_Type) < 0)
+        return NULL;
+
     return m;
 }
-
-/* Process class */
-
-static PyMethodDef PydaProcessMethods[] = {
-    {"run",  PydaProcess_run, METH_NOARGS, "Run"},
-    {"run_until_pc",  PydaProcess_run_until_pc, METH_VARARGS, "Run until PC is reached"},
-    {"run_until_io",  PydaProcess_run_until_io, METH_NOARGS, "Run until IO syscall"},
-    {"capture_io", PydaProcess_capture_io, METH_NOARGS, "Capture IO -- returns IO fds"},
-    {"register_hook",  PydaProcess_register_hook, METH_VARARGS, "Register a hook"},
-    {"unregister_hook",  PydaProcess_unregister_hook, METH_VARARGS, "Un-register a hook"},
-    {"set_thread_init_hook",  PydaProcess_set_thread_init_hook, METH_VARARGS, "Register thread init hook"},
-    {"get_register",  PydaProcess_get_register, METH_VARARGS, "Get a specific register"},
-    {"set_register",  PydaProcess_set_register, METH_VARARGS, "Set a specific register"},
-    {"get_main_module",  PydaProcess_get_main_module, METH_VARARGS, "Get name of main module"},
-    {"read",  PydaProcess_read, METH_VARARGS, "Read memory"},
-    {"write",  PydaProcess_write, METH_VARARGS, "Write memory"},
-    {"exited",  PydaProcess_exited, METH_NOARGS, "Check if thread has exited"},
-    // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
-    {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
-    {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
-    {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
-    {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
-    {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (array of tuples)"},
-    {NULL, NULL, 0, NULL}        /* Sentinel */
-};
-
-static PyTypeObject PydaProcess_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "custom.Custom",
-    .tp_doc = PyDoc_STR("Custom objects"),
-    .tp_basicsize = sizeof(PydaProcess),
-    .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_dealloc = (destructor)PydaProcess_dealloc,
-    .tp_methods = PydaProcessMethods,
-};
-
 
 static PyObject *
 pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -233,7 +277,6 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
         return NULL;
     }
 
-    PyType_Ready(&PydaProcess_Type);
     result = PyObject_NEW(PydaProcess, &PydaProcess_Type);
     if (result != NULL)
         result->main_thread = t;
@@ -244,6 +287,7 @@ pyda_core_process(PyObject *self, PyObject *args, PyObject *kwargs) {
     return (PyObject*)result;
 }
 
+/* This is a hack (note this calls the private allocator, separate from the one used by the app running under Dyanmorio) */
 static PyObject *
 pyda_core_free(PyObject *self, PyObject *args, PyObject *kwargs) {
     unsigned long addr;
@@ -255,7 +299,6 @@ pyda_core_free(PyObject *self, PyObject *args, PyObject *kwargs) {
     Py_INCREF(Py_None);
     return Py_None;
 }
-
 static int check_valid_thread(pyda_thread *t) {
     if (!t) {
         PyErr_SetString(PyExc_RuntimeError, "Threads created with Python threading APIs cannot use Pyda APIs");
@@ -291,6 +334,30 @@ static int check_signal(pyda_thread *t) {
     }
     return 0;
 }
+
+static PyObject *
+pyda_core_expr(PyObject *self, PyObject *args, PyObject *kwargs) {
+    unsigned long expr_type, op1, op2;
+    if (!PyArg_ParseTuple(args, "KKK", &expr_type, &op1, &op2))
+        return NULL;
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
+
+    if (t->expr_builder == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Expression builder not initialized");
+        return NULL;
+    }
+
+    unsigned long handle = expr_new(t->expr_builder, expr_type, op1, op2);
+    if (handle == (unsigned long)-1) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to create expression");
+        return NULL;
+    }
+
+    return PyLong_FromUnsignedLong(handle);
+}
+
 
 static PyObject *
 PydaProcess_run(PyObject* self, PyObject *noarg) {
@@ -582,8 +649,9 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
 
     unsigned long long addr;
     PyObject *callback;
+    unsigned long long callback_type;
 
-    if (!PyArg_ParseTuple(args, "KO!", &addr, &PyFunction_Type, &callback))
+    if (!PyArg_ParseTuple(args, "KO!K", &addr, &PyFunction_Type, &callback, &callback_type))
         return NULL;
 
     PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
@@ -601,7 +669,13 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    pyda_add_hook(p->main_thread->proc, addr, callback);
+    // 0 is a regular hook, 1 is a advanced "builder" hook
+    if (callback_type != 0 && callback_type != 1) {
+        PyErr_SetString(PyExc_RuntimeError, "Invalid callback type");
+        return NULL;
+    }
+
+    pyda_add_hook(p->main_thread->proc, addr, callback, callback_type);
 
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_INCREF(Py_None);
@@ -910,4 +984,61 @@ PydaProcess_pop_state(PyObject* self, PyObject *noarg) {
 
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+static PyObject *
+pyda_core_free_expr(PyObject *self, PyObject *args, PyObject *kwargs) {
+    unsigned long handle;
+    if (!PyArg_ParseTuple(args, "K", &handle))
+        return NULL;
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
+
+    if (t->expr_builder == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Expression builder not initialized");
+        return NULL;
+    }
+
+    expr_free(t->expr_builder, handle);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static void
+PydaExprBuilder_dealloc(PydaExprBuilder *self) {
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyObject *
+PydaExprBuilder_get_register(PyObject *self, PyObject *args) {
+    PydaExprBuilder *builder = (PydaExprBuilder*)self;
+    unsigned long reg_id;
+    if (!PyArg_ParseTuple(args, "K", &reg_id))
+        return NULL;
+
+    unsigned long handle;
+    if (!exprbuilder_reg_get(builder->builder, reg_id, &handle)) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to get register value");
+        return NULL;
+    }
+
+    return PyLong_FromUnsignedLong(handle);
+}
+
+static PyObject *
+PydaExprBuilder_set_register(PyObject *self, PyObject *args) {
+    PydaExprBuilder *builder = (PydaExprBuilder*)self;
+    unsigned long reg_id;
+    unsigned long handle;
+    if (!PyArg_ParseTuple(args, "KK", &reg_id, &handle))
+        return NULL;
+
+    if (!exprbuilder_reg_set(builder->builder, reg_id, handle)) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to set register value");
+        return NULL;
+    }
+
+    Py_RETURN_NONE;
 }
