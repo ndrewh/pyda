@@ -276,6 +276,16 @@ TESTS = [
             lambda o, e: all((o.count(f"thread_entry for {i}".encode('utf-8')) == 1 for i in range(2, 12))),
         ]
     )),
+
+    # test inline instrumentation compiler
+    ("test_compiler1", "simple2.c", "builder1.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: all(o.count(f"hello {i}".encode('utf-8')) == 1 for i in range(1337, 1347)),
+        ]
+    )),
 ]
 
 def main():

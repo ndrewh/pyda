@@ -1020,8 +1020,13 @@ PydaExprBuilder_get_register(PyObject *self, PyObject *args) {
 
     unsigned long handle;
     if (!exprbuilder_reg_get(builder->builder, reg_id, &handle)) {
-        PyErr_SetString(PyExc_RuntimeError, "Failed to get register value");
-        return NULL;
+        handle = expr_new(builder->builder, EXPR_TYPE_REG, reg_id, 0);
+        if (handle == (unsigned long)-1 || !exprbuilder_reg_set(builder->builder, reg_id, handle)) {
+            PyErr_SetString(PyExc_RuntimeError, "Failed to get register value");
+            return NULL;
+        }
+    } else {
+        exprbuilder_incref(builder->builder, handle);
     }
 
     return PyLong_FromUnsignedLong(handle);

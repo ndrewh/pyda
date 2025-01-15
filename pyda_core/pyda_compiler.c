@@ -23,9 +23,11 @@ static int validate_and_increment_refs(ExprBuilder *builder, unsigned long ty, u
             ((struct Expr *)builder->exprs.array[op1])->refcount++;
             break;
         case EXPR_TYPE_CONST:
+        case EXPR_TYPE_REG:
             // Constants don't have child expressions
             break;
         default:
+            dr_fprintf(STDERR, "unimplemented validate_and_increment_refs ty %d\n", ty);
             return -1;
     }
     return 0;
@@ -51,13 +53,7 @@ unsigned long expr_new(ExprBuilder *builder, unsigned long ty, unsigned long op1
     // Add to builder's vector and return the index as handle
     unsigned int idx = builder->exprs.entries;
     drvector_append(&builder->exprs, expr);
-    
-    // Track loads and stores in ops vector
-    if (ty == EXPR_TYPE_LOAD || ty == EXPR_TYPE_STORE) {
-        expr->refcount++; // Increment refcount since ops vector will hold a reference
-        drvector_append(&builder->ops, (void*)(uintptr_t)idx);
-    }
-    
+
     return idx;
 }
 
@@ -87,6 +83,7 @@ void expr_free(ExprBuilder *builder, unsigned long handle) {
             expr_free(builder, expr->op1);
             break;
         case EXPR_TYPE_CONST:
+        case EXPR_TYPE_REG:
             // Constants don't have child expressions to free
             break;
         default:
@@ -106,17 +103,12 @@ ExprBuilder *exprbuilder_init() {
     }
     drvector_init(&builder->exprs, 0, true, NULL);
     memset(&builder->mc, 0xff, sizeof(dr_mcontext_t));
-    drvector_init(&builder->ops, 0, true, NULL);
+    builder->mc.size = sizeof(dr_mcontext_t);
+    builder->mc.flags = DR_MC_ALL;
     return builder;
 }
 
 void exprbuilder_delete(ExprBuilder *builder) {
-    // First free all operations in order
-    for (uint i = 0; i < builder->ops.entries; i++) {
-        unsigned long handle = (unsigned long)(uintptr_t)builder->ops.array[i];
-        expr_free(builder, handle);
-    }
-    
     // Check for leaked expressions
     for (uint i = 0; i < builder->exprs.entries; i++) {
         struct Expr *expr = builder->exprs.array[i];
@@ -125,15 +117,14 @@ void exprbuilder_delete(ExprBuilder *builder) {
             expr_free(builder, i);
         }
     }
-    
+
     drvector_delete(&builder->exprs);
-    drvector_delete(&builder->ops);
 }
 
 int exprbuilder_reg_get(ExprBuilder *builder, reg_id_t reg_id, unsigned long *handle) {
     reg_t idx;
     reg_get_value_ex(reg_id, &builder->mc, (uint8_t*)&idx);
-    
+
     // Validate that the stored index points to a valid expression
     if (idx >= builder->exprs.entries || !builder->exprs.array[idx]) {
         return 0;
@@ -143,14 +134,28 @@ int exprbuilder_reg_get(ExprBuilder *builder, reg_id_t reg_id, unsigned long *ha
     return 1;
 }
 
+void exprbuilder_incref(ExprBuilder *builder, unsigned long handle) {
+    // note: unchecked
+    struct Expr *expr = builder->exprs.array[handle];
+    expr->refcount++;
+}
+
 int exprbuilder_reg_set(ExprBuilder *builder, reg_id_t reg_id, unsigned long handle) {
     // Validate that we're setting a valid expression handle
     if (handle >= builder->exprs.entries || !builder->exprs.array[handle]) {
         return 0;
     }
 
-    reg_t idx = handle;
-    reg_set_value_ex(reg_id, &builder->mc, (uint8_t*)&idx);
+    // Decref on the old handle, if applicable
+    reg_t old_handle;
+    reg_get_value_ex(reg_id, &builder->mc, (uint8_t*)&old_handle);
+    if (old_handle < builder->exprs.entries && builder->exprs.array[handle]) {
+        expr_free(builder, (unsigned long)old_handle);
+    }
+
+    reg_t new_handle = handle;
+    reg_set_value_ex(reg_id, &builder->mc, (uint8_t*)&new_handle);
+    exprbuilder_incref(builder, handle);
     return 1;
 }
 
@@ -161,7 +166,12 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr) {
     instr_t *new_instr;
     reg_id_t reg, scratch_reg;
     reg_id_t op1_reg, op2_reg;
-    
+
+    if (builder->exprs.entries > SCRATCH_SLOTS) {
+        dr_fprintf(STDERR, "Register allocation is not yet implemented");
+        return 0;
+    }
+
     // Reserve a register for accessing TLS
     if (drreg_reserve_register(drcontext, bb, instr, NULL, &scratch_reg) != DRREG_SUCCESS) {
         dr_fprintf(STDERR, "Failed to reserve scratch register\n");
@@ -187,20 +197,20 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr) {
     opnd_t scratch_base = opnd_create_reg(scratch_reg);
 
     // Add offsetof(pyda_thread, scratch_region) to the base address
-    // new_instr = XINST_CREATE_add(drcontext, scratch_base, opnd_create_immed_int(offsetof(pyda_thread, scratch_region), OPSZ_8));
-    // instrlist_meta_preinsert(bb, instr, new_instr);
+    new_instr = XINST_CREATE_add(drcontext, scratch_base, opnd_create_immed_int(offsetof(pyda_thread, scratch_region), OPSZ_8));
+    instrlist_meta_preinsert(bb, instr, new_instr);
 
     // Use the scratch region for each expression
     for (unsigned long i = 0; i < builder->exprs.entries; i++) {
         struct Expr *expr = builder->exprs.array[i];
         if (!expr) continue;
 
-        if (expr->ty != EXPR_TYPE_CONST) {
+        if (expr->ty != EXPR_TYPE_CONST && expr->ty != EXPR_TYPE_REG) {
             new_instr = XINST_CREATE_load(drcontext, opnd_create_reg(op1_reg), opnd_create_base_disp(scratch_reg, DR_REG_NULL, 0, 8 * expr->op1, OPSZ_8));
             instrlist_meta_preinsert(bb, instr, new_instr);
         }
 
-        if (expr->ty != EXPR_TYPE_CONST && expr->ty != EXPR_TYPE_LOAD) {
+        if (expr->ty != EXPR_TYPE_CONST && expr->ty != EXPR_TYPE_REG && expr->ty != EXPR_TYPE_LOAD) {
             new_instr = XINST_CREATE_load(drcontext, opnd_create_reg(op2_reg), opnd_create_base_disp(scratch_reg, DR_REG_NULL, 0, 8 * expr->op2, OPSZ_8));
             instrlist_meta_preinsert(bb, instr, new_instr);
         }
@@ -222,7 +232,7 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr) {
                 break;
             case EXPR_TYPE_MUL:
 #if defined(X86)
-                new_instr = INST_CREATE_imul(drcontext, opnd_create_reg(op1_reg), opnd_create_reg(op2_reg));
+                new_instr = INSTR_CREATE_imul(drcontext, opnd_create_reg(op1_reg), opnd_create_reg(op2_reg));
 #elif defined(AARCH64)
                 new_instr = instr_create_1dst_3src(drcontext, OP_madd, opnd_create_reg(op1_reg), opnd_create_reg(op1_reg), opnd_create_reg(op2_reg), opnd_create_reg(DR_REG_XZR));
 #else
@@ -230,20 +240,28 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr) {
 #endif
                 instrlist_meta_preinsert(bb, instr, new_instr);
                 break;
+                /*
             case EXPR_TYPE_DIV:
-#if defined(AARCH64)
+#if defined(X86)
+                new_instr = INSTR_CREATE_div(drcontext, opnd_create_reg(op1_reg), opnd_create_reg(op2_reg));
+#elif defined(AARCH64)
                 new_instr = instr_create_1dst_2src(drcontext, OP_sdiv, opnd_create_reg(op1_reg), opnd_create_reg(op1_reg), opnd_create_reg(op2_reg));
 #else
     #error "Unsupported architecture"
 #endif
                 instrlist_meta_preinsert(bb, instr, new_instr);
                 break;
+                */
             case EXPR_TYPE_LOAD:
                 new_instr = XINST_CREATE_load(drcontext, opnd_create_reg(op1_reg), opnd_create_base_disp(op1_reg, DR_REG_NULL, 0, 0, OPSZ_8));
                 instrlist_meta_preinsert(bb, instr, new_instr);
                 break;
             case EXPR_TYPE_STORE:
                 new_instr = XINST_CREATE_store(drcontext, opnd_create_base_disp(op1_reg, DR_REG_NULL, 0, 0, OPSZ_8), opnd_create_reg(op2_reg));
+                instrlist_meta_preinsert(bb, instr, new_instr);
+                break;
+            case EXPR_TYPE_REG:
+                new_instr = XINST_CREATE_move(drcontext, opnd_create_reg(op1_reg), opnd_create_reg(expr->op1));
                 instrlist_meta_preinsert(bb, instr, new_instr);
                 break;
             default:
@@ -269,6 +287,7 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr) {
             dr_fprintf(STDERR, "exprbuilder_compile: moving final value into register %lu\n", reg);
             new_instr = XINST_CREATE_load(drcontext, opnd_create_reg(reg), opnd_create_base_disp(scratch_reg, DR_REG_NULL, 0, 8 * handle, OPSZ_8));
             instrlist_meta_preinsert(bb, instr, new_instr);
+            expr_free(builder, handle);
         }
     }
 

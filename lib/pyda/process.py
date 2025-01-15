@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import ctypes
 import ctypes.util
 from .tube import ProcessTube
+from .compiler import Builder
 import pyda_core
 import sys
 
@@ -81,7 +82,7 @@ class Process(ProcessTube):
         assert addr not in self._hooks
 
         self._builder_hooks[addr] = builder
-        self._p.register_hook(addr, builder, 1)
+        self._p.register_hook(addr, lambda b: builder(Builder(b)), 1)
 
     def hook_after_call(self, addr, callback):
         def call_hook(p):

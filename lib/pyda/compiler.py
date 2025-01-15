@@ -35,14 +35,51 @@ class Expr:
 
 
 class Builder:
-    def __init__(self):
-        pass
+    def __init__(self, handle):
+        self._b = handle
+        self.regs = BuilderRegisters(handle)
 
     def load(self, addr):
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_LOAD, Expr.expr_from(addr).handle, 0))
-    
+
     def store(self, addr, value):
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_STORE, Expr.expr_from(addr).handle, Expr.expr_from(value).handle))
-    
+
     def constant(self, value):
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_CONST, value, 0))
+
+class BuilderRegisters():
+    def __init__(self, b):
+        self._b = b
+
+    def __getitem__(self, name):
+        val = None
+        reg_id = getattr(pyda_core, "REG_"+name.upper(), None)
+        if reg_id:
+            val = Expr(self._b.get_register(reg_id))
+
+        if val is not None:
+            return val
+
+        raise AttributeError(f"Invalid register name '{name}'")
+
+    def __setitem__(self, name, value):
+        reg_id = getattr(pyda_core, "REG_"+name.upper(), None)
+        if reg_id:
+            expr = Expr.expr_from(value)
+            self._b.set_register(reg_id, expr._handle)
+        else:
+            raise AttributeError(f"Invalid register name '{name}'")
+
+    def __getattr__(self, name):
+        return self[name]
+
+    def __setattr__(self, name, value):
+        if name != "_b":
+            self[name] = value
+        else:
+            super().__setattr__(name, value)
+
+    def has_reg(self, name):
+        return hasattr(pyda_core, "REG_"+name.upper())
+
