@@ -760,7 +760,8 @@ void pyda_handle_advanced_hook(instrlist_t *bb, instr_t *instr, pyda_hook *callb
 
     Py_DECREF(py_builder);
 
-    exprbuilder_compile(t->expr_builder, bb, instr);
+    exprbuilder_compile(t->expr_builder, bb, instr, 0);
+    DEBUG_PRINTF(STDERR, "Compiled advanced hook at %p\n", callback->addr);
 
 cleanup:
     // Cleanup

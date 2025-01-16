@@ -40,13 +40,19 @@ class Builder:
         self.regs = BuilderRegisters(handle)
 
     def load(self, addr):
-        return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_LOAD, Expr.expr_from(addr).handle, 0))
+        addr = Expr.expr_from(addr)
+        return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_LOAD, addr._handle, 0))
 
     def store(self, addr, value):
-        return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_STORE, Expr.expr_from(addr).handle, Expr.expr_from(value).handle))
+        addr = Expr.expr_from(addr)
+        value = Expr.expr_from(value)
+        return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_STORE, addr._handle, value._handle))
 
     def constant(self, value):
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_CONST, value, 0))
+
+    def raw(self, insns):
+        return Expr(pyda_core.expr_raw(insns))
 
 class BuilderRegisters():
     def __init__(self, b):

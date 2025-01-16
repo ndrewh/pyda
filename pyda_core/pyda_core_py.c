@@ -21,6 +21,7 @@ static PyObject *pyda_get_base(PyObject *self, PyObject *args);
 static PyObject *pyda_get_module_for_addr(PyObject *self, PyObject *args);
 static PyObject *pyda_get_current_thread_id(PyObject *self, PyObject *noarg);
 static PyObject *pyda_core_expr(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject *pyda_core_expr_raw(PyObject *self, PyObject *args, PyObject *kwargs);
 static PyObject *pyda_core_free_expr(PyObject *self, PyObject *args, PyObject *kwargs);
 
 static void PydaProcess_dealloc(PydaProcess *self);
@@ -64,6 +65,8 @@ static PyMethodDef PydaGlobalMethods[] = {
      "Call into the allocator used by the rest of the tool."},
     {"expr",  (PyCFunction)pyda_core_expr, METH_KEYWORDS | METH_VARARGS,
      "Create a new expression. May be abstract (e.g. representing a register value) or concrete (e.g. representing an integer constant)."},
+    {"expr_raw",  (PyCFunction)pyda_core_expr_raw, METH_KEYWORDS | METH_VARARGS,
+     "Create a new raw (assembly) expression."},
     {"free_expr",  (PyCFunction)pyda_core_free_expr, METH_KEYWORDS | METH_VARARGS,
      "Free an expression and its children if refcount reaches 0."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
@@ -333,29 +336,6 @@ static int check_signal(pyda_thread *t) {
         return 1;
     }
     return 0;
-}
-
-static PyObject *
-pyda_core_expr(PyObject *self, PyObject *args, PyObject *kwargs) {
-    unsigned long expr_type, op1, op2;
-    if (!PyArg_ParseTuple(args, "KKK", &expr_type, &op1, &op2))
-        return NULL;
-
-    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    if (check_valid_thread(t)) return NULL;
-
-    if (t->expr_builder == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, "Expression builder not initialized");
-        return NULL;
-    }
-
-    unsigned long handle = expr_new(t->expr_builder, expr_type, op1, op2);
-    if (handle == (unsigned long)-1) {
-        PyErr_SetString(PyExc_RuntimeError, "Failed to create expression");
-        return NULL;
-    }
-
-    return PyLong_FromUnsignedLong(handle);
 }
 
 
@@ -984,6 +964,54 @@ PydaProcess_pop_state(PyObject* self, PyObject *noarg) {
 
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+static PyObject *
+pyda_core_expr(PyObject *self, PyObject *args, PyObject *kwargs) {
+    unsigned long expr_type, op1, op2;
+    if (!PyArg_ParseTuple(args, "KKK", &expr_type, &op1, &op2))
+        return NULL;
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
+
+    if (t->expr_builder == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Expression builder not initialized");
+        return NULL;
+    }
+
+    unsigned long handle = expr_new(t->expr_builder, expr_type, op1, op2);
+    if (handle == (unsigned long)-1) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to create expression");
+        return NULL;
+    }
+
+    return PyLong_FromUnsignedLong(handle);
+}
+
+
+static PyObject *
+pyda_core_expr_raw(PyObject *self, PyObject *args, PyObject *kwargs) {
+    const char *data;
+    Py_ssize_t len;
+    if (!PyArg_ParseTuple(args, "s#", &data, &len))
+        return NULL;
+
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (check_valid_thread(t)) return NULL;
+
+    if (t->expr_builder == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "Expression builder not initialized");
+        return NULL;
+    }
+
+    unsigned long handle = expr_new_raw(t->expr_builder, data, len);
+    if (handle == (unsigned long)-1) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to create raw expression");
+        return NULL;
+    }
+
+    return PyLong_FromUnsignedLong(handle);
 }
 
 static PyObject *
