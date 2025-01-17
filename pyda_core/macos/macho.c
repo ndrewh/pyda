@@ -1,4 +1,5 @@
 #include "pyda_core.h"
+#include "pyda_util.h"
 /* Courtesy of Claude */
 
 #include <stdio.h>
@@ -58,7 +59,6 @@ void patch_macho(char *path, void *aslr_slide, redirect_import_t *redirects, int
     }
 
 
-    printf("here1\n");
     struct load_command *cmd = (struct load_command *)(header + 1);
     struct symtab_command *symtab = NULL;
     struct section_info la_ptr_section = {0};
@@ -91,7 +91,6 @@ void patch_macho(char *path, void *aslr_slide, redirect_import_t *redirects, int
         }
         cmd = (struct load_command *)((char *)cmd + cmd->cmdsize);
     }
-    printf("here2\n");
 
     if (!symtab || !dysymtab || !la_ptr_section.size) {
         printf("Required tables not found\n");
@@ -108,7 +107,6 @@ void patch_macho(char *path, void *aslr_slide, redirect_import_t *redirects, int
     // Print imported symbols with their lazy pointer addresses
     
     // Iterate through the indirect symbol table entries for the lazy pointer section
-    printf("here3\n");
     for (uint32_t i = 0; i < la_ptr_section.reserved2; i++) {
         uint32_t indirect_idx = indirect_symtab[la_ptr_section.reserved1 + i];
         
@@ -125,7 +123,7 @@ void patch_macho(char *path, void *aslr_slide, redirect_import_t *redirects, int
         
         for (int j = 0; j < num_redirects; j++) {
             if (strcmp(&sym_name[1], redirects[j].name) == 0) {
-                printf("Redirecting %s\n", sym_name);
+                DEBUG_PRINTF("Redirecting %s\n", sym_name);
 
                 void* table_addr = (void*)(la_ptr_addr + aslr_slide);
 
@@ -155,5 +153,4 @@ void patch_macho(char *path, void *aslr_slide, redirect_import_t *redirects, int
 done:
     munmap(file_data, sb.st_size);
     close(fd);
-    printf("here4\n");
 }

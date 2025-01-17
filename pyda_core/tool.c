@@ -5,6 +5,7 @@
 #include "dr_api.h"
 #include "dr_tools.h"
 #include "drmgr.h"
+#include "drreg.h"
 #include "Python.h"
 #include "pyda_util.h"
 
@@ -57,8 +58,12 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
 
     pyda_client_id = id;
 
-    /* Options */
-    drmgr_init();
+    drreg_options_t ops = { sizeof(ops), 0 /*no slots needed*/, true /* conservative */};
+    if (!drmgr_init() || drreg_init(&ops) != DRREG_SUCCESS) {
+        dr_fprintf(STDERR, "pyda: error in drmgr or drreg initialization\n");
+        dr_abort();
+    }
+
 
     is_dynamorio_running = 1;
 

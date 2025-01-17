@@ -246,6 +246,8 @@ pyda_thread* pyda_mk_thread(pyda_process *proc) {
 
     thread->expr_builder = NULL;
 
+    memset(thread->scratch_region, 0xef, sizeof(thread->scratch_region));
+
     // PyErr_SetString(PyExc_RuntimeError, "OK");
     return thread;
 }
@@ -761,7 +763,7 @@ void pyda_handle_advanced_hook(instrlist_t *bb, instr_t *instr, pyda_hook *callb
     Py_DECREF(py_builder);
 
     exprbuilder_compile(t->expr_builder, bb, instr, 0);
-    DEBUG_PRINTF(STDERR, "Compiled advanced hook at %p\n", callback->addr);
+    DEBUG_PRINTF("Compiled advanced hook at %p\n", callback->addr);
 
 cleanup:
     // Cleanup
