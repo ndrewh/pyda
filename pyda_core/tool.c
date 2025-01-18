@@ -277,9 +277,9 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     // the code cache may not be the executing thread.
     //
 #if defined(X86)
-    bool save_fpstate = true;
+    dr_cleancall_save_t save_flags = DR_CLEANCALL_READS_APP_CONTEXT | DR_CLEANCALL_WRITES_APP_CONTEXT | DR_CLEANCALL_SAVE_FLOAT;
 #elif defined(AARCH64)
-    bool save_fpstate = false;
+    dr_cleancall_save_t save_flags = DR_CLEANCALL_READS_APP_CONTEXT | DR_CLEANCALL_WRITES_APP_CONTEXT;
 #else
     #error "Unsupported arch"
 #endif
@@ -287,20 +287,20 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
     if (instr_is_app(instr)) {
         if (instr_get_app_pc(instr) == t->proc->entrypoint) {
             DEBUG_PRINTF("** Found Entrypoint\n");
-            dr_insert_clean_call(drcontext, bb, instr, (void *)thread_entrypoint_break,
-                            false /* save fpstate */, 0);
+            dr_insert_clean_call_ex(drcontext, bb, instr, (void *)thread_entrypoint_break,
+                            save_flags, 0);
         } else if ((callback = pyda_get_callback(t->proc, instr_get_app_pc(instr)))) {
             DEBUG_PRINTF("installing hook at %p\n", instr_get_app_pc(instr));
             if (callback->callback_type == 0) {
-                dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_cleancall,
-                                save_fpstate /* save fpstate */, 1, OPND_CREATE_INTPTR(callback));
+                dr_insert_clean_call_ex(drcontext, bb, instr, (void *)pyda_hook_cleancall,
+                                save_flags /* save flags */, 1, OPND_CREATE_INTPTR(callback));
             } else if (callback->callback_type == 1) {
                 pyda_handle_advanced_hook(bb, instr, callback);
             }
         } else if (pyda_check_run_until(t->proc, instr_get_app_pc(instr))) {
             DEBUG_PRINTF("installing run_until hook at %p\n", instr_get_app_pc(instr));
-            dr_insert_clean_call(drcontext, bb, instr, (void *)pyda_hook_rununtil_reached,
-                            save_fpstate /* save fpstate */, 1, OPND_CREATE_INTPTR(instr_get_app_pc(instr)));
+            dr_insert_clean_call_ex(drcontext, bb, instr, (void *)pyda_hook_rununtil_reached,
+                            save_flags /* save flags */, 1, OPND_CREATE_INTPTR(instr_get_app_pc(instr)));
         }
     }
     return DR_EMIT_DEFAULT;
