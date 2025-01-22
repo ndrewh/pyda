@@ -308,11 +308,7 @@ event_insert(void *drcontext, void *tag, instrlist_t *bb, instr_t *instr,
 
 static bool filter_syscall_event(void *drcontext, int sysnum) {
     // TODO: Check the list of desired syscalls
-    pyda_thread *t = drmgr_get_tls_field(drcontext, g_pyda_tls_idx);
-
-    /// XXX: We allow users to update the syscall hooks later, but we have no way to flush them
-    return t->proc->syscall_pre_hook || t->proc->syscall_post_hook || sysnum == 0 || sysnum == 1;
-    /* return true; */
+    return true;
 }
 
 static bool pre_syscall_event(void *drcontext, int sysnum) {
