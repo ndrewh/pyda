@@ -21,7 +21,7 @@ def thread_entry(p):
     print(f"thread_entry for {p.tid}")
 
     counter += 1
-    if counter == 27:
+    if counter == 2:
         jsdkfjdsaklfadska
 
 p.set_thread_entry(thread_entry)

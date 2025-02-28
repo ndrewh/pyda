@@ -13,17 +13,20 @@ if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
 endif(NOT DynamoRIO_FOUND)
 
-find_package(Python3 3.10 EXACT COMPONENTS Interpreter Development)
+find_package(Python3 3.10 EXACT COMPONENTS Development)
 if (NOT Python3_FOUND)
   message(FATAL_ERROR "Python required to build")
 endif(NOT Python3_FOUND)
 
-target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS} include/)
 if (APPLE)
   target_link_libraries(tool ${Python3_LIBRARIES})
+  target_include_directories(tool PRIVATE ${Python3_INCLUDE_DIRS} include/)
 else()
   target_link_libraries(tool ${Python3_LIBRARIES} unwind)
+  target_include_directories(tool PRIVATE ${LIBUNWIND_INCLUDE_DIRS} ${Python3_INCLUDE_DIRS} include/)
+  target_link_directories(tool PRIVATE ${LIBUNWIND_LIBRARY_DIRS})
 endif()
+
 target_compile_options(tool PUBLIC -DPYDA_DYNAMORIO_CLIENT -Werror)
 
 configure_DynamoRIO_client(tool)

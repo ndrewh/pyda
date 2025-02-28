@@ -12,6 +12,11 @@
 #include <sys/auxv.h>
 #endif
 
+#ifdef UNIX
+#include <semaphore.h>
+#include <unistd.h>
+#endif
+
 // These are used by python as shims to dynamorio-safe pthread functions
 
 int pyda_thread_setspecific(pthread_key_t key, void *val);
@@ -206,3 +211,28 @@ void parse_proc_environ() {
     }
 
 }
+
+/* void pyda_sigaltstack(void *a, void *b) { */
+/*     DEBUG_PRINTF("sigaltstack %p %p\n", a, b); */
+/* } */
+
+int pyda_sysconf(int num) {
+    DEBUG_PRINTF("sysconf %d\n", num);
+#ifdef LINUX
+    if (num == _SC_SIGSTKSZ) {
+        DEBUG_PRINTF("sigconf(_SC_SIGSTKSZ)\n");
+        return os_minsigstksz();
+    }
+#endif
+    return sysconf(num);
+}
+
+#ifdef UNIX
+int pyda_sem_init(void *sem, int pshared, unsigned int value) {
+    DEBUG_PRINTF("sem_init %p %d %d\n", sem, pshared, value);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    return sem_init(sem, 1, value);
+#pragma GCC diagnostic pop
+}
+#endif

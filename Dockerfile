@@ -1,36 +1,22 @@
 FROM ubuntu:22.04
 
-RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget python3-pip python3-dev build-essential cmake gdbserver gdb tmux zsh git \
+RUN apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget python3.10-full python3.10-dev build-essential cmake gdbserver gdb tmux zsh git \
       cmake g++ doxygen git zlib1g-dev libunwind-dev libsnappy-dev liblz4-dev \
       build-essential gdb lcov pkg-config \
-      libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
-      libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
-      lzma lzma-dev tk-dev uuid-dev zlib1g-dev && \
+      curl && \
       rm -rf /var/lib/apt/lists/*
 
-# install openssl to make python happy
-RUN cd /usr/src/ && \
-      wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz && \
-      tar xf openssl-1.1.1v.tar.gz && \
-      rm openssl-1.1.1v.tar.gz && \
-      cd openssl-1.1.1v/ && \
-      ./config --prefix=/usr/local && \
-      make -j && make install_sw && \
-      rm -rf /usr/src/openssl-1.1.1v/
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
+RUN echo '#!/bin/bash\npython3.10 -m pip "$@"' > /usr/local/bin/pip3 && \
+    chmod +x /usr/local/bin/pip3
 
-# install python
-COPY patches/cpython-3.10.12.patch /tmp/cpython-3.10.12.patch
-RUN mkdir /opt/custom-python/ && \
-      mkdir /opt/custom-python-root/ && \
-      cd /opt/custom-python/ && \
-      wget https://github.com/python/cpython/archive/refs/tags/v3.10.12.tar.gz && \
-      tar xf v3.10.12.tar.gz && rm v3.10.12.tar.gz && \
-      mv /tmp/cpython-3.10.12.patch /opt/custom-python/cpython-3.10.12/ && \
-      cd /opt/custom-python/cpython-3.10.12/ && git apply cpython-3.10.12.patch && \
-      cd /opt/custom-python/cpython-3.10.12/ && \
-      bash -c './configure $([ "$PYDA_DEBUG" == "1" ] && echo "" || echo "--enable-optimizations") --prefix=/opt/custom-python-root/ --with-ensurepip=install --enable-shared --with-openssl=/usr/local/ --with-openssl-rpath=auto' && \
-      make install -j && \
-      rm -rf /opt/custom-python/
+# Install pwndbg + pwntools
+WORKDIR /tmp
+RUN git clone https://github.com/pwndbg/pwndbg.git && \
+    cd pwndbg && git checkout cada600b0f2be0e2873465f59cc9c4c31425951a && \
+    sed -i 's/signal.signal/__import__("pls_no_signal").signal/' pwndbg/__init__.py && \
+    pip3 install -e . && \
+    pip3 install pwntools
 
 ARG PYDA_DEBUG=0
 
@@ -38,31 +24,27 @@ ARG PYDA_DEBUG=0
 COPY patches/dynamorio-11.2.patch /tmp
 RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_11.2.0  && \
       cd /opt/dynamorio/ && \
+      wget https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init && \
+      wget https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && \
       git apply /tmp/dynamorio-11.2.patch && \
       rm /tmp/dynamorio-11.2.patch && \
       mkdir /opt/dynamorio-install/ && \
-      mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ ..' && \
+      mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ -DBUILD_TESTS=OFF -DBUILD_SAMPLES=OFF -DBUILD_CLIENTS=OFF -DBUILD_DOCS=OFF ..' && \
       make -j && make install && \
       rm -rf /opt/dynamorio/ && \
       touch /opt/dynamorio-install/CMakeCache.txt
 
 ENV DYNAMORIO_HOME=/opt/dynamorio-install/
-ENV PYTHONHOME=/opt/custom-python-root/
-ENV PYTHONPATH=/opt/custom-python-root/lib/python3.10/:/opt/pyda/lib
+ENV PYTHONPATH=/opt/pyda/lib
 
 COPY ./ /opt/pyda/
 WORKDIR /opt/pyda
 RUN mkdir build && cd build && \
-      bash -c 'CMAKE_PREFIX_PATH=/opt/dynamorio/build/cmake cmake -DCMAKE_BUILD_TYPE=$([ "$PYDA_DEBUG" == "1" ] && echo "Debug" || echo "Release") -DDynamoRIO_DIR=$DYNAMORIO_HOME/cmake -DPython3_EXECUTABLE=$PYTHONHOME/bin/python3 -DPython3_ROOT_DIR=/opt/custom-python-root/  ..' && \
+      bash -c 'CMAKE_PREFIX_PATH=/opt/dynamorio/build/cmake cmake -DCMAKE_BUILD_TYPE=$([ "$PYDA_DEBUG" == "1" ] && echo "Debug" || echo "Release") -DDynamoRIO_DIR=$DYNAMORIO_HOME/cmake ..' && \
       make -j
 
 ENV PATH=$PATH:/opt/pyda/bin
-WORKDIR /tmp
-
-RUN git clone https://github.com/pwndbg/pwndbg.git && \
-    cd pwndbg && git checkout cada600b0f2be0e2873465f59cc9c4c31425951a && \
-    sed -i 's/signal.signal/__import__("pls_no_signal").signal/' pwndbg/__init__.py && \
-    pip3 install -e .
+ENV PYDA_TOOL_PATH=/opt/pyda/build/pyda_core/libtool.so
 
 WORKDIR /opt/pyda
 
@@ -71,8 +53,6 @@ RUN bash -c 'if [[ "$PYDA_GEF" = "1" ]]; then \
     apt update && apt install -y file; \
     PYTHONPATH= PYTHONHOME= bash -c "$(wget https://raw.githubusercontent.com/hugsy/gef/main/scripts/gef.sh -O -)"; \
     fi'
-
-RUN pip3 install pwntools
 
 ARG EVAL=0
 RUN bash -c 'if [[ "$EVAL" = "1" ]]; then \

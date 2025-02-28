@@ -85,7 +85,7 @@ print out the targets during execution
 
 
 ## Limitations
-- Currently Linux only (please contribute Windows and macOS support!)
+- Currently Linux/macOS only (please contribute Windows support!)
 - Currently X86_64/ARM64 only (please contribute support for other architectures)
 - All of the limitations of Dynamorio apply. (The program must be reasonably well behaved. You should assume a sufficiently motivated program can detect whether it is running under Dynamorio.)
 - Some state may be shared with the target process; while Dynamorio
@@ -109,6 +109,18 @@ docker build -t pyda .
 ```
 
 (The Pyda image is currently based on `ubuntu:22.04` and we leave the default entrypoint as `/bin/bash`)
+
+### Experimental pip install (macOS and Linux)
+
+> [!WARNING]
+> macOS support is extremely experimental and may not work.
+
+Installation with pip may take ~5 minutes to complete, as it builds everything from source.
+A virtualenv is highly recommended.
+
+```sh
+pip install pyda-tools
+```
 
 ### Usage
 ```sh

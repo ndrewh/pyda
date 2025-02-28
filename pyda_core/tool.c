@@ -218,7 +218,7 @@ void python_init() {
 
     DEBUG_PRINTF("python_init\n");
     // sleep(10);
-    wchar_t *program = Py_DecodeLocale("program_name", NULL);
+    wchar_t *program = Py_DecodeLocale("python3", NULL);
     if (program == NULL) {
         DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
         exit(1);

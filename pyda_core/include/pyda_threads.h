@@ -24,3 +24,6 @@ unsigned long pyda_getauxval(unsigned long type);
 const char *pyda_getenv(const char *name);
 
 void parse_proc_environ(void);
+int pyda_sem_init(void *sem, int pshared, unsigned int value);
+// void pyda_sigaltstack(void *a, void *b);
+int pyda_sysconf(int num);

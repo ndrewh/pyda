@@ -26,8 +26,11 @@ static redirect_import_t python_redirect_imports[] = {
     { "dlsym", (app_pc)pyda_dlsym },
 #ifdef LINUX
     { "getauxval", (app_pc)pyda_getauxval },
+    /* { "sigaltstack", (app_pc)pyda_sigaltstack }, */
+    { "sysconf", (app_pc)pyda_sysconf },
 #endif
-    { "getenv", (app_pc)pyda_getenv }
+    { "getenv", (app_pc)pyda_getenv },
+    { "sem_init", (app_pc)pyda_sem_init }
 };
 
 #ifdef MACOS
