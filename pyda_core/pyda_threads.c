@@ -160,11 +160,6 @@ int pyda_thread_detach(pthread_t thread) {
 
 #ifdef LINUX
 
-// manylinux target is missing this define
-#ifndef AT_MINSIGSTKSZ
-#define AT_MINSIGSTKSZ 51
-#endif
-
 extern size_t os_minsigstksz(void);
 unsigned long pyda_getauxval(unsigned long type) {
     DEBUG_PRINTF("getauxval %lx\n", type);
@@ -224,12 +219,6 @@ void parse_proc_environ() {
 int pyda_sysconf(int num) {
     DEBUG_PRINTF("sysconf %d\n", num);
 #ifdef LINUX
-
-// manylinux target is missing this define
-#ifndef _SC_SIGSTKSZ
-#define _SC_SIGSTKSZ 250
-#endif
-
     if (num == _SC_SIGSTKSZ) {
         DEBUG_PRINTF("sigconf(_SC_SIGSTKSZ)\n");
         return os_minsigstksz();
