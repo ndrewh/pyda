@@ -21,7 +21,7 @@ def dynamorio_tag_and_patch():
 
 # Utility functions
 def run_command(command, cwd=None, env=None):
-    print(f"Running: {' '.join(command)}")
+    print(f"Running {' '.join(command)}")
     subprocess.check_call(command, cwd=cwd, env=env)
 
 def download_and_extract(url, extract_dir):
@@ -116,6 +116,9 @@ class CustomBuildCommand(Command):
             run_command(['make', f'-j{multiprocessing.cpu_count()}'], cwd=dynamorio_build_dir)
             run_command(['make', 'install'], cwd=dynamorio_build_dir)
 
+            print(f"exe: {sys.executable}")
+            print(f"path: {sys.path}")
+
             # Set environment variables for the final build
             build_env = os.environ.copy()
             build_env.update({
@@ -146,49 +149,33 @@ class CustomBuildCommand(Command):
             run_command(cmake_args, cwd=project_build_dir, env=build_env)
 
             run_command(['make', f'-j{multiprocessing.cpu_count()}'], cwd=project_build_dir)
-            run_command(['rm', '-rf', ''], cwd=dynamorio_build_dir)
+            run_command(['rm', '-rf', os.path.abspath(dynamorio_build_dir)])
 
-            prepend_env = f"""
-export DYNAMORIO_HOME={os.path.abspath(dynamorio_install_dir)}/
-"""
-#export PYTHONPATH={':'.join(site.getsitepackages())}
+            # After building, copy artifacts to package directory
+            package_dir = os.path.join(self.build_lib, 'pyda')
+            os.makedirs(package_dir, exist_ok=True)
 
-            if "macOS" in platform.platform():
-                pyda_tool_path = os.path.abspath(os.path.join(project_build_dir, 'pyda_core', 'libtool.dylib'))
-            else:
-                pyda_tool_path = os.path.abspath(os.path.join(project_build_dir, 'pyda_core', 'libtool.so'))
-
-            prepend_env += f"export PYDA_TOOL_PATH={pyda_tool_path}\n"
-            
-            # Copy and modify the bin scripts to the appropriate location
-            bin_dir = os.path.join(self.build_lib, 'bin')
-            os.makedirs(bin_dir, exist_ok=True)
-            
-            # Copy and modify pyda script
-            with open(os.path.join(src_dir, 'bin', 'pyda'), 'r') as f:
-                pyda_content = f.read()
-            
-            # Insert the environment variables after the shebang line
-            pyda_lines = pyda_content.splitlines()
-            modified_pyda = pyda_lines[0] + '\n\n' + prepend_env + '\n'.join(pyda_lines[1:])
-            
-            with open(os.path.join(src_dir, 'bin', 'pyda'), 'w') as f:
-                f.write(modified_pyda)
-            
-            # Copy and modify pyda-attach script
-            with open(os.path.join(src_dir, 'bin', 'pyda-attach'), 'r') as f:
-                pyda_attach_content = f.read()
-            
-            # Insert the environment variables after the shebang line
-            pyda_attach_lines = pyda_attach_content.splitlines()
-            modified_pyda_attach = pyda_attach_lines[0] + '\n\n' + prepend_env + '\n'.join(pyda_attach_lines[1:])
-            
-            with open(os.path.join(src_dir, 'bin', 'pyda-attach'), 'w') as f:
-                f.write(modified_pyda_attach)
-
-            # you don't want to know why this is here
             with open(os.path.join(dynamorio_install_dir, "CMakeCache.txt"), 'w') as f:
                 pass
+
+            # Copy DynamoRIO installation
+            dynamorio_dest = os.path.join(package_dir, 'dynamorio')
+            scripts_dest = os.path.join(package_dir, 'scripts')
+            os.makedirs(scripts_dest, exist_ok=True)
+
+            shutil.copytree(dynamorio_install_dir, dynamorio_dest, dirs_exist_ok=True)
+
+            # Copy the built tool library
+            if "macOS" in platform.platform():
+                tool_src = os.path.join(project_build_dir, 'pyda_core', 'libtool.dylib')
+                tool_dest = os.path.join(package_dir, 'libtool.dylib')
+            else:
+                tool_src = os.path.join(project_build_dir, 'pyda_core', 'libtool.so')
+                tool_dest = os.path.join(package_dir, 'libtool.so')
+
+            shutil.copy2(tool_src, tool_dest)
+            shutil.copy2(os.path.join(src_dir, "bin", "pyda"), scripts_dest)
+            shutil.copy2(os.path.join(src_dir, "bin", "pyda-attach"), scripts_dest)
 
         finally:
             build_temp_dir.cleanup()
@@ -199,25 +186,54 @@ class CustomInstallCommand(install):
     def run(self):
         self.run_command('build_pyda')
         install.run(self)
+        prepend_env = f"""
+BASE=$(python3 -c "from importlib.resources import files; print(files('pyda'))" 2>/dev/null)
+export DYNAMORIO_HOME=$BASE/dynamorio/
+"""
+#export PYTHONPATH={':'.join(site.getsitepackages())}
+
+        if "macOS" in platform.platform():
+            pyda_tool_path = 'libtool.dylib'
+        else:
+            pyda_tool_path = 'libtool.so'
+
+        prepend_env += f"export PYDA_TOOL_PATH=$BASE/{pyda_tool_path}\n"
+
+        # Copy and modify the bin scripts to the appropriate location
+        bin_dir = self.install_scripts
+        src_dir = os.path.join(self.build_lib, "pyda", "scripts")
+        os.makedirs(bin_dir, exist_ok=True)
+
+        # Copy and modify pyda script
+        with open(os.path.join(src_dir, 'pyda'), 'r') as f:
+            pyda_content = f.read()
+
+        # Insert the environment variables after the shebang line
+        pyda_lines = pyda_content.splitlines()
+        modified_pyda = pyda_lines[0] + '\n\n' + prepend_env + '\n'.join(pyda_lines[1:])
+
+        with open(os.path.join(bin_dir, 'pyda'), 'w') as f:
+            f.write(modified_pyda)
+
+        # Copy and modify pyda-attach script
+        with open(os.path.join(src_dir, 'pyda-attach'), 'r') as f:
+            pyda_attach_content = f.read()
+
+        # Insert the environment variables after the shebang line
+        pyda_attach_lines = pyda_attach_content.splitlines()
+        modified_pyda_attach = pyda_attach_lines[0] + '\n\n' + prepend_env + '\n'.join(pyda_attach_lines[1:])
+
+        with open(os.path.join(bin_dir, 'pyda-attach'), 'w') as f:
+            f.write(modified_pyda_attach)
+
+        os.chmod(os.path.join(bin_dir, "pyda"), 0o775)
+        os.chmod(os.path.join(bin_dir, "pyda-attach"), 0o775)
 
 # Custom develop command that runs our build command first
 class CustomDevelopCommand(develop):
     def run(self):
         self.run_command('build_pyda')
         develop.run(self)
-
-class CustomInstallScriptsCommand(install_scripts):
-    def run(self):
-        install_scripts.run(self)
-
-        src_dir = os.path.dirname(os.path.abspath(__file__))
-
-        for script in ['pyda', 'pyda-attach']:
-            with open(os.path.join(src_dir, 'bin', script), 'r') as f:
-                script_content = f.read()
-
-            self.write_script(script, script_content)
-
 
 setup(
     name='pyda-dbi',
@@ -228,13 +244,21 @@ setup(
         'build_pyda': CustomBuildCommand,
         'install': CustomInstallCommand,
         'develop': CustomDevelopCommand,
-        'install_scripts': CustomInstallScriptsCommand,
     },
     package_dir={"pyda": "lib/pyda"},
     packages=["pyda"],
+    package_data={
+        'pyda': [
+            'dynamorio/**/*',
+            'libtool.so',
+            'libtool.dylib',
+        ],
+    },
+    include_package_data=True,
     python_requires='>=3.0',
     install_requires=[
         # Add your Python package dependencies here
     ],
     scripts=[],
 )
+
