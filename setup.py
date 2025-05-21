@@ -12,6 +12,7 @@ from setuptools.command.build_ext import build_ext
 import multiprocessing
 import platform
 import site
+from urllib.request import urlretrieve
 
 def dynamorio_tag_and_patch():
     if "macOS" in platform.platform():
@@ -25,30 +26,17 @@ def run_command(command, cwd=None, env=None):
     subprocess.check_call(command, cwd=cwd, env=env)
 
 def download_and_extract(url, extract_dir):
-    import urllib.request
     import tarfile
 
     filename = url.split('/')[-1]
-    urllib.request.urlretrieve(url, filename)
+    urlretrieve(url, filename)
 
     with tarfile.open(filename) as tar:
         tar.extractall(path=extract_dir)
 
     os.remove(filename)
 
-class CustomBuildCommand(Command):
-    description = "Build Pyda"
-    user_options = []
-    
-    def initialize_options(self):
-        self.build_temp = None
-        self.build_lib = None
-    
-    def finalize_options(self):
-        self.set_undefined_options('build',
-                                  ('build_temp', 'build_temp'),
-                                  ('build_lib', 'build_lib'))
-    
+class CustomBuildCommand(build_ext):
     def run(self):
         # Create temporary build directory
         build_temp_dir = tempfile.TemporaryDirectory()
@@ -68,10 +56,10 @@ class CustomBuildCommand(Command):
                 libunwind_dir = os.path.join(build_temp, 'libunwind')
                 os.makedirs(libunwind_dir, exist_ok=True)
                 download_and_extract(
-                    'https://github.com/libunwind/libunwind/releases/download/v1.6.2/libunwind-1.6.2.tar.gz',
+                    'https://github.com/libunwind/libunwind/releases/download/v1.8.1/libunwind-1.8.1.tar.gz',
                     libunwind_dir
                 )
-                libunwind_build_dir = os.path.join(libunwind_dir, 'libunwind-1.6.2')
+                libunwind_build_dir = os.path.join(libunwind_dir, 'libunwind-1.8.1')
                 run_command(['./configure', f'--prefix={os.path.abspath(libunwind_install_dir)}'], cwd=libunwind_build_dir)
                 run_command(['make', f'-j{multiprocessing.cpu_count()}'], cwd=libunwind_build_dir)
                 run_command(['make', 'install'], cwd=libunwind_build_dir)
@@ -92,8 +80,11 @@ class CustomBuildCommand(Command):
             if os.path.exists(patch_path):
                 run_command(['git', 'apply', patch_path], cwd=dynamorio_dir)
 
-            run_command(["bash", "-c", "wget https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init"], cwd=dynamorio_dir)
-            run_command(["bash", "-c", "wget https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch"], cwd=dynamorio_dir)
+            urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch', os.path.join(dynamorio_dir, 'f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch'))
+            urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch', os.path.join(dynamorio_dir, 'c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch'))
+
+            run_command(["bash", "-c", "git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init"], cwd=dynamorio_dir)
+            run_command(["bash", "-c", "git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch"], cwd=dynamorio_dir)
 
             # Build DynamoRIO
             dynamorio_build_dir = os.path.join(dynamorio_dir, 'build')
@@ -184,7 +175,6 @@ class CustomBuildCommand(Command):
 # Custom install command that runs our build command first
 class CustomInstallCommand(install):
     def run(self):
-        self.run_command('build_pyda')
         install.run(self)
         prepend_env = f"""
 BASE=$(python3 -c "from importlib.resources import files; print(files('pyda'))" 2>/dev/null)
@@ -232,7 +222,6 @@ export DYNAMORIO_HOME=$BASE/dynamorio/
 # Custom develop command that runs our build command first
 class CustomDevelopCommand(develop):
     def run(self):
-        self.run_command('build_pyda')
         develop.run(self)
 
 setup(
@@ -241,7 +230,7 @@ setup(
     author='Andrew Haberlandt',
     author_email='your.email@example.com',
     cmdclass={
-        'build_pyda': CustomBuildCommand,
+        'build_ext': CustomBuildCommand,
         'install': CustomInstallCommand,
         'develop': CustomDevelopCommand,
     },
@@ -260,5 +249,6 @@ setup(
         # Add your Python package dependencies here
     ],
     scripts=[],
+    ext_modules=[Extension("dummy", sources=[])],
 )
 
