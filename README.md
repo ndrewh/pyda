@@ -115,11 +115,10 @@ docker build -t pyda .
 > [!WARNING]
 > macOS support is extremely experimental and may not work.
 
-Installation with pip may take ~5 minutes to complete, as it builds everything from source.
-A virtualenv is highly recommended.
+Installation with pip may take ~1-2 minutes to complete, as it builds everything from source.
 
 ```sh
-pip install pyda-tools
+pip install pyda-dbi
 ```
 
 ### Usage
