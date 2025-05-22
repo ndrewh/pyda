@@ -260,5 +260,9 @@ jobs:
           merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.event.release.prerelease == true
         with:
           repository-url: https://test.pypi.org/legacy/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: github.event.release.prerelease == false
