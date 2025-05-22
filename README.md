@@ -116,6 +116,7 @@ docker build -t pyda .
 > macOS support is extremely experimental and may not work.
 
 Installation with pip may take ~1-2 minutes to complete, as it builds everything from source.
+**Pyda currently only supports CPython 3.10.**
 
 ```sh
 pip install pyda-dbi
