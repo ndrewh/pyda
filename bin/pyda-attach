@@ -5,4 +5,6 @@ if [[ -z "${PYDA_TOOL_PATH}" ]]; then
     exit 1
 fi
 
+export PYTHONEXECUTABLE=$(which python3)
+
 PYDA_NO_CAPTURE=1 LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PYTHONHOME/lib/ exec $DYNAMORIO_HOME/bin64/drrun -attach $2 -stack_size 1024K -c $PYDA_TOOL_PATH -script $1

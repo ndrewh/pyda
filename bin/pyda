@@ -5,4 +5,6 @@ if [[ -z "${PYDA_TOOL_PATH}" ]]; then
     exit 1
 fi
 
+export PYTHONEXECUTABLE=$(which python3)
+
 PYDA_NO_ATTACH=1 ASAN_OPTIONS=$ASAN_OPTIONS:detect_leaks=0 LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PYTHONHOME/lib/ PYDA_SCRIPT=$1 exec $DYNAMORIO_HOME/bin64/drrun -no_reachable_client -vm_size 1G -stack_size 1024K -private_loader -c $PYDA_TOOL_PATH ${@:2}

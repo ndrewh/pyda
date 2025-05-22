@@ -218,19 +218,22 @@ void python_init() {
 
     DEBUG_PRINTF("python_init\n");
     // sleep(10);
-    wchar_t *program = Py_DecodeLocale("python3", NULL);
-    if (program == NULL) {
-        DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
-
     /* Add the pyda_core module */
     if (PyImport_AppendInittab("pyda_core", PyInit_pyda_core) == -1) {
         fprintf(stderr, "Error: could not extend in-built modules table\n");
         exit(1);
     }
 
-    Py_SetProgramName(program);  /* optional but recommended */
+#ifndef MACOS
+    wchar_t *program = Py_DecodeLocale("python3", NULL);
+    if (program == NULL) {
+        DEBUG_PRINTF("Fatal error: cannot decode argv[0]\n");
+        exit(1);
+    }
+
+    Py_SetProgramName(program);
+#endif // macOS uses PYTHONEXECUTABLE
+
     PyConfig config;
     PyConfig_InitPythonConfig(&config);
 
