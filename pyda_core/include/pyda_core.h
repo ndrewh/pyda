@@ -26,7 +26,8 @@ typedef struct pyda_process_s pyda_process;
 
 struct pyda_hook_s {
     PyObject *py_func;
-    int callback_type;  // 0 = normal hook, 1 = advanced instrumentation
+    int callback_type:2;  // 0 = normal hook, 1 = advanced instrumentation
+    int deleted:1; // This is set when the hook has been fully flushed from code cache.
     void *addr;
 };
 
@@ -128,11 +129,14 @@ void pyda_break(pyda_thread *t);
 void pyda_break_noblock(pyda_thread *t); // used when app exits, no need to return to it.
 
 void pyda_initial_break(pyda_thread *t);
+
+// NOTE: GIL should be held for these
 void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type);
 void pyda_remove_hook(pyda_process *p, uint64_t addr);
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback);
 void pyda_set_syscall_pre_hook(pyda_process *p, PyObject *callback);
 void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback);
+
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr);
 
 void* pyda_get_run_until(pyda_thread *t);

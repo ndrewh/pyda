@@ -22,16 +22,20 @@ pyda_process* pyda_mk_process() {
 #else
 #include "dr_api.h"
 
-static void free_hook(void *data) {
+static void free_hook_step1(void *data) {
     // Must hold GIL
     pyda_hook *hook = (pyda_hook*)data;
     Py_DECREF(hook->py_func);
     hook->py_func = NULL;
-    dr_global_free(hook, sizeof(pyda_hook));
+}
+
+static void free_hook_step2(void *data) {
+    // no GIL required
+    dr_global_free(data, sizeof(pyda_hook));
 }
 
 static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_thread *t, void* pc);
-static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thread *t, void* hook_addr);
+static void thread_prepare_for_python_return(pyda_thread *t, void* hook_addr);
 
 
 pyda_process* pyda_mk_process() {
@@ -44,7 +48,7 @@ pyda_process* pyda_mk_process() {
     drvector_init(&proc->thread_run_untils, 0, true, NULL);
 
     proc->main_thread = pyda_mk_thread(proc);
-    hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, free_hook, NULL, NULL);
+    hashtable_init_ex(&proc->callbacks, 4, HASH_INTPTR, false, false, NULL, NULL, NULL);
 
     proc->thread_init_hook = NULL;
     proc->syscall_pre_hook = NULL;
@@ -397,14 +401,22 @@ void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callb
     }
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    drvector_append(&t->hook_update_queue, (void*)addr);
+    drvector_append(&t->hook_update_queue, (void*)cb);
 }
 
 void pyda_remove_hook(pyda_process *p, uint64_t addr) {
-    hashtable_remove(&p->callbacks, (void*)addr);
+    // note: GIL is held here...
+    pyda_hook *cb = pyda_get_callback(p, (void*)addr);
+    if (cb) {
+        hashtable_remove(&p->callbacks, (void*)addr);
+        pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+        drvector_append(&t->hook_update_queue, (void*)cb);
 
-    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    drvector_append(&t->hook_update_queue, (void*)addr);
+        // Here, we decref the python function and NULL it out.
+        // But we can't free it yet (there are still refs in the code
+        // cache).
+        free_hook_step1(cb);
+    }
 }
 
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback) {
@@ -454,6 +466,8 @@ int pyda_flush_hooks() {
         flushed = 1;
 
         // Copy to temporary, alternate storage so we don't hold the lock
+        // (note: hook_update_queue is only shared between one python/app thread pair)
+        // XXX: The copy doesn't make a lot of sense anymore, we don't call dr_mark_safe_to_suspend anywhere?
         int entry_count = t->hook_update_queue.entries;
         void **tmp = dr_thread_alloc(drcontext, sizeof(void*) * entry_count);
         if (!tmp) {
@@ -463,14 +477,38 @@ int pyda_flush_hooks() {
         memcpy(tmp, t->hook_update_queue.array, sizeof(void*) * entry_count);
         t->hook_update_queue.entries = 0;
 
-        // Flush deleted hooks
+        // Flush added/removed hooks
         for (int i=0; i<entry_count; i++) {
-            DEBUG_PRINTF("dr_flush_region: %llx\n", tmp[i]);
-            dr_flush_region(tmp[i], 1);
-            DEBUG_PRINTF("dr_flush_region end %llx\n", tmp[i]);
+            pyda_hook *hook = (pyda_hook*)tmp[i];
+
+            if (hook->deleted) {
+                tmp[i] = NULL; // Ensure we do not double-flush or double-free.
+                continue;
+            }
+
+            void *addr = hook->addr;
+            DEBUG_PRINTF("dr_flush_region: %llx\n", addr);
+            dr_flush_region(addr, 1);
+            DEBUG_PRINTF("dr_flush_region end %llx\n", addr);
+
+            if (hook->py_func == NULL) {
+                // This hook was removed; Now that the hook refs are finally removed from code cache,
+                // we can free the pyda_hook. Here we mark ->deleted
+                // so that we don't try to free it again. This can occur if hook is added/removed
+                // without flushing.
+                hook->deleted = 1;
+            }
 
             // race lol
             p->flush_count++;
+        }
+
+        for (int i=0; i<entry_count; i++) {
+            pyda_hook *hook = (pyda_hook*)tmp[i];
+            if (hook && hook->deleted) {
+                // Free the hook itself.
+                free_hook_step2(hook);
+            }
         }
 
         dr_thread_free(drcontext, tmp, sizeof(void*) * entry_count);
@@ -480,7 +518,7 @@ int pyda_flush_hooks() {
         // Require that dr_redirect_execution is used, since another thread may have flushed
         // us during the dr_mark_safe_to_suspend section in thread_prepare_for_python_entry
         //
-        // note: right now other threads cannot flush us
+        // note: I think right now other threads cannot flush us
         flushed = 1;
         t->flush_ts = p->flush_count;
     }
@@ -545,10 +583,11 @@ static void thread_prepare_for_python_entry(PyGILState_STATE *gstate, pyda_threa
     t->rip_updated_in_python = 0;
 }
 
-static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thread *t, void* hook_addr) {
+// NOTE: This is called without the GIL held!
+static void thread_prepare_for_python_return(pyda_thread *t, void* hook_addr) {
     void *drcontext = dr_get_current_drcontext();
 
-    // Syscall hooks are not allowed to modify PC
+    // Syscall hooks are not allowed to modify PC and we not allow modifying hooks
     if (!hook_addr) {
         if (t->rip_updated_in_python) {
             dr_fprintf(STDERR, "\n[Pyda] ERROR: Syscall hooks are not allowed to modify PC. Skipping future hooks.\n");
@@ -559,7 +598,6 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
         if (t->hook_update_queue.entries > 0) {
             dr_fprintf(STDERR, "\n[Pyda] WARN: Hooks should not be modified in a syscall. This is UB, continuing.\n");
         }
-        if (gstate) PyGILState_Release(*gstate);
         return;
     }
 
@@ -570,16 +608,18 @@ static void thread_prepare_for_python_return(PyGILState_STATE *gstate, pyda_thre
     }
 
     if (pyda_flush_hooks() || t->rip_updated_in_python) {
-        // XXX: We might not be holding the GIL here (in run_until case) -- is hash-table locked?
+        // NOTE: We are not holding any locks here... it's possible that some other thread will remove the hook we're executing right
+        // now... the "best we can do for now" to avoid infinite loop is to detect that we are returning to the same spot,
+        // and to skip the hook the next time.
         if (t->cur_context.pc == hook_addr && (pyda_get_callback(t->proc, hook_addr) || pyda_get_run_until(t) == hook_addr)) {
             t->skip_next_hook = 1;
+            dr_fprintf(STDERR, "skip_next_hook\n");
+            dr_flush_file(STDERR);
         }
         // we need to call dr_redirect_execution
-        if (gstate) PyGILState_Release(*gstate);
         dr_redirect_execution(&t->cur_context);
     } else {
         dr_set_mcontext(drcontext, &t->cur_context);
-        if (gstate) PyGILState_Release(*gstate);
     }
 }
 
@@ -598,25 +638,27 @@ void pyda_hook_cleancall(pyda_hook *cb) {
     thread_prepare_for_python_entry(&gstate, t, cb->addr);
     DEBUG_PRINTF("cleancall LOCKED %p %p %p\n", cb->addr, cb->py_func, t);
 
-    PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->proc->py_obj, NULL);
+    if (cb->py_func) { // Can be NULL if hook was already removed, but hasn't been flushed from code cache yet.
+        PyObject *result = PyObject_CallFunctionObjArgs(cb->py_func, t->proc->py_obj, NULL);
 
-    if (result == NULL) {
-        dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook call failed. Skipping future hooks on thread %d\n", t->tid);
+        if (result == NULL) {
+            dr_fprintf(STDERR, "\n[Pyda] ERROR: Hook call failed. Skipping future hooks on thread %d\n", t->tid);
 
-        dr_flush_file(STDERR);
-        t->errored = 1;
-        PyErr_Print();
-        dr_fprintf(STDERR, "\n");
-        // dr_abort();
-        if (getenv("PYDA_ABORT_ON_ERROR") && getenv("PYDA_ABORT_ON_ERROR")[0] == '1') {
-            dr_fprintf(STDERR, "\n[Pyda] ABORTING (will crash now)\n");
-            *(int*)(1) = 1;
+            dr_flush_file(STDERR);
+            t->errored = 1;
+            PyErr_Print();
+            dr_fprintf(STDERR, "\n");
+            // dr_abort();
+            if (getenv("PYDA_ABORT_ON_ERROR") && getenv("PYDA_ABORT_ON_ERROR")[0] == '1') {
+                dr_fprintf(STDERR, "\n[Pyda] ABORTING (will crash now)\n");
+                *(int*)(1) = 1;
+            }
+        } else {
+            Py_DECREF(result);
         }
-    } else {
-        Py_DECREF(result);
-    }
 
-    DEBUG_PRINTF("cleancall ret %p %p %p\n", cb, cb->py_func, t);
+        DEBUG_PRINTF("cleancall ret %p %p %p\n", cb, cb->py_func, t);
+    }
 
     PyGILState_Release(gstate);
 
@@ -637,7 +679,7 @@ void pyda_hook_cleancall(pyda_hook *cb) {
         pyda_break(t);
     }
 
-    thread_prepare_for_python_return(NULL, t, cb->addr); // MAY NOT RETURN
+    thread_prepare_for_python_return(t, cb->addr); // MAY NOT RETURN
 }
 
 int pyda_hook_syscall(int syscall_num, int is_pre) {
@@ -649,7 +691,7 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
         t->python_blocked_on_io = 0;
         thread_prepare_for_python_entry(NULL, t, NULL);
         pyda_break(t);
-        thread_prepare_for_python_return(NULL, t, NULL);
+        thread_prepare_for_python_return(t, NULL); // (note: guaranteed to return)
 
         if (t->errored) return 1;
     }
@@ -684,7 +726,8 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     }
 
     DEBUG_PRINTF("syscall ret %d pre %d\n", syscall_num, is_pre);
-    thread_prepare_for_python_return(&gstate, t, NULL);
+    PyGILState_Release(gstate);
+    thread_prepare_for_python_return(t, NULL);
 
     return should_run;
 }
@@ -705,7 +748,7 @@ void pyda_hook_rununtil_reached(void *pc) {
 
         // Wait for Python to yield back to us
         pyda_break(t);
-        thread_prepare_for_python_return(NULL, t, pc); // MAY NOT RETURN
+        thread_prepare_for_python_return(t, pc); // MAY NOT RETURN
     } else {
         // This can actually happen in two cases:
         // 1. The code cache entry was not flushed (BUG in Pyda!) after a run_until
