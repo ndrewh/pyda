@@ -1,9 +1,10 @@
 from pyda import *
 from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
+from collections import defaultdict
 import string
 import sys
-import subprocess, re
+import subprocess, re, time
 
 def parse_text_stubs(binary_path: str):
     stubs = {}
@@ -59,6 +60,7 @@ print({ hex(x): y for (x, y) in plt_map.items() })
 
 def guess_arg(x):
     printable_chars = bytes(string.printable, 'ascii')
+    return hex(x)
 
     # Is pointer?
     if x > 0x100000000:
@@ -68,19 +70,22 @@ def guess_arg(x):
                 return str(data[:data.index(0)])
         except:
             pass
-    
+
     return hex(x)
 
+counts = defaultdict(int)
 def lib_hook(p):
     name = plt_map[p.regs.pc]
-    print(f"{name}(" + ", ".join([
+    print(f"{name}[tid={p.tid}](" + ", ".join([
         f"rdi={guess_arg(p.regs.arg1)}",
         f"rsi={guess_arg(p.regs.arg2)}",
         f"rdx={guess_arg(p.regs.arg3)}",
         f"rcx={guess_arg(p.regs.arg4)}",
-    ]) + ")")
+    ]) + ")", flush=True)
+    counts[name] += 1
 
 for x in plt_map:
     p.hook(x, lib_hook)
 
 p.run()
+print(counts)

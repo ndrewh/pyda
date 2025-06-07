@@ -16,7 +16,7 @@ from urllib.request import urlretrieve
 
 def dynamorio_tag_and_patch():
     if "macOS" in platform.platform():
-        return ("11ee87b68bcb9834a52f42fe764d1a05d3c4f6b7", "patches/dynamorio-11ee87b68-macos.patch")
+        return ("bf5c900f575976ba145616b25337e3266ecaea3a", "patches/dynamorio-bf5c900f575976ba145616b25337e3266ecaea3a-macos.patch")
     else:
         return ("release_11.2.0", "patches/dynamorio-11.2.patch")
 
@@ -80,11 +80,13 @@ class CustomBuildCommand(build_ext):
             if os.path.exists(patch_path):
                 run_command(['git', 'apply', patch_path], cwd=dynamorio_dir)
 
-            urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch', os.path.join(dynamorio_dir, 'f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch'))
-            urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch', os.path.join(dynamorio_dir, 'c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch'))
+            if "macOS" not in platform.platform():
+                # TODO: update to a newer version that doesn't require backward-porting these patches
+                urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch', os.path.join(dynamorio_dir, 'f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch'))
+                urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch', os.path.join(dynamorio_dir, 'c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch'))
 
-            run_command(["bash", "-c", "git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init"], cwd=dynamorio_dir)
-            run_command(["bash", "-c", "git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch"], cwd=dynamorio_dir)
+                run_command(["bash", "-c", "git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init"], cwd=dynamorio_dir)
+                run_command(["bash", "-c", "git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch"], cwd=dynamorio_dir)
 
             # Build DynamoRIO
             dynamorio_build_dir = os.path.join(dynamorio_dir, 'build')

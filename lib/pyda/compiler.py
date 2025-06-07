@@ -4,11 +4,11 @@ class Expr:
     # it is NOT legal for user code to call this constructor EVER
     def __init__(self, handle):
         self._handle = handle
-    
+
     def __add__(self, other):
         other = self.expr_from(other)
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_ADD, self._handle, other._handle))
-    
+
     def __sub__(self, other):
         other = self.expr_from(other)
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_SUB, self._handle, other._handle))
@@ -20,10 +20,10 @@ class Expr:
     def __floordiv__(self, other):
         other = self.expr_from(other)
         return Expr(pyda_core.expr(pyda_core.EXPR_TYPE_DIV, self._handle, other._handle))
-    
+
     def __del__(self):
         pyda_core.free_expr(self._handle)
-    
+
     @staticmethod
     def expr_from(val):
         if isinstance(val, Expr):

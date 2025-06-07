@@ -1,0 +1,29 @@
+diff --git a/core/lib/instrument.h b/core/lib/instrument.h
+index 87972ab9f..8acfa9d7b 100644
+--- a/core/lib/instrument.h
++++ b/core/lib/instrument.h
+@@ -178,7 +178,7 @@ dr_get_mcontext_priv(dcontext_t *dcontext, dr_mcontext_t *dmc, priv_mcontext_t *
+ bool
+ dr_modload_hook_exists(void);
+ 
+-void
++DR_API void
+ instrument_client_lib_loaded(byte *start, byte *end);
+ void
+ instrument_client_lib_unloaded(byte *start, byte *end);
+diff --git a/ext/drreg/drreg.h b/ext/drreg/drreg.h
+index 2c5e6fc45..ad20896e6 100644
+--- a/ext/drreg/drreg.h
++++ b/ext/drreg/drreg.h
+@@ -473,6 +473,11 @@ drreg_status_t
+ drreg_restore_app_values(void *drcontext, instrlist_t *ilist, instr_t *where, opnd_t opnd,
+                          DR_PARAM_INOUT reg_id_t *swap);
+ 
++DR_EXPORT
++drreg_status_t
++drreg_restore_app_value(void *drcontext, instrlist_t *ilist, instr_t *where,
++                        reg_id_t app_reg, reg_id_t dst_reg, bool stateful);
++
+ DR_EXPORT
+ /**
+  * Restores the spilled value (typically the application value) for
