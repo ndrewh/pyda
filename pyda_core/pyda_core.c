@@ -396,6 +396,7 @@ void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callb
     cb->py_func = callback;
     cb->callback_type = callback_type;
     cb->addr = (void*)addr;
+    cb->deleted = 0;
 
     Py_INCREF(callback);
     DEBUG_PRINTF("pyda_add_hook %p %p for %llx (type=%d)\n", cb, cb->py_func, addr, callback_type);
