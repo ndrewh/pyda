@@ -1,12 +1,34 @@
 import pyda_core
 from pyda_core import MemoryError, ThreadExitError, InvalidStateError, FatalSignalError
-from .process import Process, Map, backtrace_to_str
-from . import arch
+from .proc import Process, Map, backtrace_to_str
+from . import arch, tube, compiler
 import sys, os
 
 INIT = False
 
 def process(**kwargs):
+    """Obtain the current `Process` instance.
+    
+    Args:
+        **kwargs: Additional arguments passed to Process constructor.
+                 Common options include:
+                 - io (bool): Enable I/O capture for pwntools compatibility
+        
+    Example:
+        ```python
+        from pyda import *
+        
+        # Basic usage
+        p = process()
+        
+        # With I/O capture enabled
+        p = process(io=True)
+        ```
+        
+    Note:
+        This function must be called from within the Pyda environment (i.e., when
+        running a script via the `pyda` or `pyda-attach` commands).
+    """
     global INIT
 
     # todo: remove the bogus argument
