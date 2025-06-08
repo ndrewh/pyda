@@ -22,12 +22,14 @@ ARG PYDA_DEBUG=0
 
 # install dynamorio
 COPY patches/dynamorio-11.2.patch /tmp
+COPY patches/wine_tls_fix_11.2.patch /tmp
 RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.git /opt/dynamorio && cd /opt/dynamorio/ && git checkout release_11.2.0  && \
       cd /opt/dynamorio/ && \
       wget https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init && \
       wget https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && \
       git apply /tmp/dynamorio-11.2.patch && \
-      rm /tmp/dynamorio-11.2.patch && \
+      git apply /tmp/wine_tls_fix_11.2.patch && \
+      rm /tmp/*.patch && \
       mkdir /opt/dynamorio-install/ && \
       mkdir build && cd build && bash -c 'cmake -DDEBUG=$([ "$PYDA_DEBUG" == "1" ] && echo "ON" || echo "OFF") -DCMAKE_INSTALL_PREFIX=/opt/dynamorio-install/ -DBUILD_TESTS=OFF -DBUILD_SAMPLES=OFF -DBUILD_CLIENTS=OFF -DBUILD_DOCS=OFF ..' && \
       make -j && make install && \

@@ -1,0 +1,137 @@
+commit 629317542fbf68b2cd9d7b54c617c4f8e88559aa
+Author: Andrew Haberlandt <andrew.haberlandt@gmail.com>
+Date:   Sun Jun 8 17:24:04 2025 +0000
+
+    wine tls fix
+
+diff --git a/core/unix/os.c b/core/unix/os.c
+index e11241c6a..42e042fe0 100644
+--- a/core/unix/os.c
++++ b/core/unix/os.c
+@@ -8235,6 +8235,23 @@ pre_system_call(dcontext_t *dcontext)
+         /* we handle arch_prctl in post_syscall */
+         dcontext->sys_param0 = sys_param(dcontext, 0);
+         dcontext->sys_param1 = sys_param(dcontext, 1);
++
++        if (dcontext->sys_param0 == (SEG_TLS == SEG_GS ? ARCH_SET_GS : ARCH_SET_FS)) {
++            os_local_state_t *os_tls = get_os_tls();
++            /* do_syscall expects dcontext pointer in SEG_TLS:TLS_DCONTEXT_SLOT,
++             * so we avoid do_syscall in this case.
++             */
++            reg_t res = dynamorio_syscall(SYS_arch_prctl, 2, dcontext->sys_param0, dcontext->sys_param1);
++
++            os_tls->app_alt_tls_reg = read_thread_register(SEG_TLS);
++            os_tls->app_alt_tls_base = (void *)dcontext->sys_param1;
++
++            /* set the value back to the value we are actually using */
++            os_set_dr_seg(dcontext, SEG_TLS);
++
++            execute_syscall = false;
++            set_success_return_val(dcontext, res);
++        }
+         break;
+     }
+ #    endif
+@@ -9286,6 +9303,9 @@ post_system_call(dcontext_t *dcontext)
+ #endif
+ #if defined(LINUX) && defined(X86) && defined(X64)
+     case SYS_arch_prctl: {
++        LOG(THREAD, LOG_THREADS, 2,
++            "syscall: arch_prctl %d %d => " PFX " success=%d\n", dcontext->sys_param0,
++            dcontext->sys_param1, MCXT_SYSCALL_RES(mc), success);
+         if (success && INTERNAL_OPTION(mangle_app_seg)) {
+             tls_handle_post_arch_prctl(dcontext, dcontext->sys_param0,
+                                        dcontext->sys_param1);
+diff --git a/core/unix/tls.h b/core/unix/tls.h
+index 201e2fc81..64216fdd4 100644
+--- a/core/unix/tls.h
++++ b/core/unix/tls.h
+@@ -387,6 +387,8 @@ tls_min_index(void);
+ #    if defined(LINUX) && defined(X64)
+ void
+ tls_handle_post_arch_prctl(dcontext_t *dcontext, int code, reg_t base);
++void
++os_set_dr_seg(dcontext_t *dcontext, reg_id_t seg);
+ #    endif
+ 
+ #    if defined(MACOS) && !defined(X64)
+diff --git a/core/unix/tls_linux_x86.c b/core/unix/tls_linux_x86.c
+index 98e552e5d..b874c6357 100644
+--- a/core/unix/tls_linux_x86.c
++++ b/core/unix/tls_linux_x86.c
+@@ -860,7 +860,7 @@ tls_min_index(void)
+ }
+ 
+ #ifdef X64
+-static void
++void
+ os_set_dr_seg(dcontext_t *dcontext, reg_id_t seg)
+ {
+     int res;
+@@ -886,17 +886,17 @@ tls_handle_post_arch_prctl(dcontext_t *dcontext, int code, reg_t base)
+             if (TLS_REG_LIB == SEG_FS) {
+                 os_tls->app_lib_tls_reg = read_thread_register(SEG_FS);
+                 os_tls->app_lib_tls_base = (void *)base;
++
++                /* update the app_thread_areas */
++                ostd = (os_thread_data_t *)dcontext->os_field;
++                desc = (our_modify_ldt_t *)ostd->app_thread_areas;
++                desc[FS_TLS].entry_number = tls_min_index() + FS_TLS;
++                dynamorio_syscall(SYS_get_thread_area, 1, &desc[FS_TLS]);
++                /* set it back to the value we are actually using. */
++                os_set_dr_seg(dcontext, SEG_FS);
+             } else {
+-                os_tls->app_alt_tls_reg = read_thread_register(SEG_FS);
+-                os_tls->app_alt_tls_base = (void *)base;
++                /* pre syscall handler handles the TLS_REG == SEG_FS case */
+             }
+-            /* update the app_thread_areas */
+-            ostd = (os_thread_data_t *)dcontext->os_field;
+-            desc = (our_modify_ldt_t *)ostd->app_thread_areas;
+-            desc[FS_TLS].entry_number = tls_min_index() + FS_TLS;
+-            dynamorio_syscall(SYS_get_thread_area, 1, &desc[FS_TLS]);
+-            /* set it back to the value we are actually using. */
+-            os_set_dr_seg(dcontext, SEG_FS);
+         }
+         break;
+     }
+@@ -913,17 +913,17 @@ tls_handle_post_arch_prctl(dcontext_t *dcontext, int code, reg_t base)
+         if (TLS_REG_LIB == SEG_GS) {
+             os_tls->app_lib_tls_reg = read_thread_register(SEG_GS);
+             os_tls->app_lib_tls_base = (void *)base;
++
++            /* update the app_thread_areas */
++            ostd = (os_thread_data_t *)dcontext->os_field;
++            desc = ostd->app_thread_areas;
++            desc[GS_TLS].entry_number = tls_min_index() + GS_TLS;
++            dynamorio_syscall(SYS_get_thread_area, 1, &desc[GS_TLS]);
++            /* set the value back to the value we are actually using */
++            os_set_dr_seg(dcontext, SEG_GS);
+         } else {
+-            os_tls->app_alt_tls_reg = read_thread_register(SEG_GS);
+-            os_tls->app_alt_tls_base = (void *)base;
++            /* pre syscall handler handles the TLS_REG == SEG_GS case */
+         }
+-        /* update the app_thread_areas */
+-        ostd = (os_thread_data_t *)dcontext->os_field;
+-        desc = ostd->app_thread_areas;
+-        desc[GS_TLS].entry_number = tls_min_index() + GS_TLS;
+-        dynamorio_syscall(SYS_get_thread_area, 1, &desc[GS_TLS]);
+-        /* set the value back to the value we are actually using */
+-        os_set_dr_seg(dcontext, SEG_GS);
+         break;
+     }
+     case ARCH_GET_GS: {
+diff --git a/core/vmareas.c b/core/vmareas.c
+index ed5075e22..94ab46e19 100644
+--- a/core/vmareas.c
++++ b/core/vmareas.c
+@@ -6089,7 +6089,7 @@ app_memory_allocation(dcontext_t *dcontext, app_pc base, size_t size, uint prot,
+      * during os_walk_address_space().
+      */
+     if (dynamo_initialized &&
+-        !app_memory_pre_alloc(dcontext, base, size, prot, false /*!hint*/,
++        base != NULL && !app_memory_pre_alloc(dcontext, base, size, prot, false /*!hint*/,
+                               true /*update*/, image)) {
+         /* XXX: We should do better by telling app_memory_protection_change() we
+          * can't fail so it should try to handle.  We do not expect this to happen
