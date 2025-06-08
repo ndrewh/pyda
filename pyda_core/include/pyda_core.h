@@ -26,8 +26,8 @@ typedef struct pyda_process_s pyda_process;
 
 struct pyda_hook_s {
     PyObject *py_func;
-    int callback_type:2;  // 0 = normal hook, 1 = advanced instrumentation
-    int deleted:1; // This is set when the hook has been fully flushed from code cache.
+    unsigned callback_type:2;  // 0 = normal hook, 1 = advanced instrumentation
+    unsigned deleted:1; // This is set when the hook has been fully flushed from code cache.
     void *addr;
 };
 
