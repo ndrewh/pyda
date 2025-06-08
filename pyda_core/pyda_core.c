@@ -633,7 +633,6 @@ static void thread_prepare_for_python_return(pyda_thread *t, void* hook_addr) {
         // and to skip the hook the next time.
         if (t->cur_context.pc == hook_addr && (pyda_get_callback(t->proc, hook_addr) || pyda_get_run_until(t) == hook_addr)) {
             t->skip_next_hook = 1;
-            dr_fprintf(STDERR, "skip_next_hook\n");
             dr_flush_file(STDERR);
         }
         // we need to call dr_redirect_execution
