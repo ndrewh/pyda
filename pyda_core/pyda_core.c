@@ -418,7 +418,9 @@ void pyda_remove_hook(pyda_process *p, uint64_t addr) {
     if (cb) {
         hashtable_remove(&p->callbacks, (void*)addr);
         pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-        drvector_append(&t->hook_update_queue, (void*)cb);
+
+        if (dr_memory_is_readable((app_pc)addr, 1))
+            drvector_append(&t->hook_update_queue, (void*)cb);
 
         // Here, we decref the python function and NULL it out.
         // But we can't free it yet (there are still refs in the code
