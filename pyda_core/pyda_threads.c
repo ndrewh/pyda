@@ -217,7 +217,7 @@ void parse_proc_environ() {
 /* } */
 
 int pyda_sysconf(int num) {
-    DEBUG_PRINTF("sysconf %d\n", num);
+    /* DEBUG_PRINTF("sysconf %d\n", num); */
 #ifdef LINUX
     if (num == _SC_SIGSTKSZ) {
         DEBUG_PRINTF("sigconf(_SC_SIGSTKSZ)\n");
@@ -229,7 +229,7 @@ int pyda_sysconf(int num) {
 
 #ifdef UNIX
 int pyda_sem_init(void *sem, int pshared, unsigned int value) {
-    DEBUG_PRINTF("sem_init %p %d %d\n", sem, pshared, value);
+    /* DEBUG_PRINTF("sem_init %p %d %d\n", sem, pshared, value); */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return sem_init(sem, 1, value);
