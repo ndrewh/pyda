@@ -19,4 +19,5 @@ t.start()
 
 time.sleep(3)
 p.run()
+time.sleep(3)
 print("pass")

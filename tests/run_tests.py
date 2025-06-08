@@ -254,7 +254,7 @@ TESTS = [
         retcode=0,
         checkers=[
             output_checker,
-            lambda o, e: e.count(b"RuntimeError: Hooked PC 1337133713371337 is invalid.") == 1,
+            lambda o, e: e.count(b"RuntimeError: Hooked PC 1337133713371337 is invalid;") == 1,
         ]
     )),
 
