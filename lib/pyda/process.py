@@ -53,12 +53,11 @@ class Process(ProcessTube):
             for h in self._syscall_post_hooks[syscall_num]:
                 h(self, syscall_num)
 
-    def hook(self, addr, callback, priority=False):
+    def hook(self, addr, callback, priority=False, later=False):
         assert addr not in self._builder_hooks
         if addr not in self._hooks:
             hook_wrapper = lambda p: self._hook_dispatch(addr)
-            self._p.register_hook(addr, hook_wrapper, 0)
-
+            self._p.register_hook(addr, hook_wrapper, 0, later)
             self._hooks[addr] = deque([callback])
         else:
             if priority:
@@ -76,13 +75,13 @@ class Process(ProcessTube):
             del self._builder_hooks[addr]
             self._p.unregister_hook(addr)
 
-    def builder_hook(self, addr, builder):
+    def builder_hook(self, addr, builder, later=False):
         if addr in self._builder_hooks:
             raise RuntimeError("Only one builder hook can be registered per address")
         assert addr not in self._hooks
 
         self._builder_hooks[addr] = builder
-        self._p.register_hook(addr, lambda b: builder(Builder(b)), 1)
+        self._p.register_hook(addr, lambda b: builder(Builder(b)), 1, later)
 
     def hook_after_call(self, addr, callback):
         def call_hook(p):
@@ -120,6 +119,9 @@ class Process(ProcessTube):
             self._syscall_post_hooks[syscall_num] = [callback]
         else:
             self._syscall_post_hooks[syscall_num].append(callback)
+    
+    def on_module_load(self, callback):
+        self._p.set_module_load_hook(callback)
 
     def set_thread_entry(self, callback):
         self._p.set_thread_init_hook(lambda p: callback(self))
@@ -149,7 +151,6 @@ class Process(ProcessTube):
     def run_until(self, addr):
         self._has_run = True
         self._p.run_until_pc(addr)
-
 
     @property
     def tid(self):

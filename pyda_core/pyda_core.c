@@ -53,6 +53,7 @@ pyda_process* pyda_mk_process() {
     proc->thread_init_hook = NULL;
     proc->syscall_pre_hook = NULL;
     proc->syscall_post_hook = NULL;
+    proc->module_load_hook = NULL;
     proc->py_obj = NULL;
 
     // Setup locks, etc.
@@ -279,6 +280,11 @@ void pyda_process_destroy(pyda_process *p) {
 
     p->syscall_post_hook = NULL;
 
+    if (p->module_load_hook)
+        Py_DECREF(p->module_load_hook);
+
+    p->module_load_hook = NULL;
+
     hashtable_delete(&p->callbacks);
     drvector_delete(&p->threads);
     drvector_delete(&p->thread_run_untils);
@@ -385,7 +391,7 @@ PyObject *pyda_run_until(pyda_thread *proc, uint64_t addr) {
     return NULL;
 }
 
-void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type) {
+void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type, int needs_flush) {
     pyda_hook *cb = dr_global_alloc(sizeof(pyda_hook));
     cb->py_func = callback;
     cb->callback_type = callback_type;
@@ -401,7 +407,9 @@ void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callb
     }
 
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
-    drvector_append(&t->hook_update_queue, (void*)cb);
+
+    if (needs_flush)
+        drvector_append(&t->hook_update_queue, (void*)cb);
 }
 
 void pyda_remove_hook(pyda_process *p, uint64_t addr) {
@@ -446,6 +454,16 @@ void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback) {
         Py_DECREF(p->syscall_post_hook);
 
     p->syscall_post_hook = callback;
+    Py_INCREF(callback);
+}
+
+void pyda_set_module_load_hook(pyda_process *p, PyObject *callback) {
+    // NOTE: GIL is held
+
+    if (p->module_load_hook)
+        Py_DECREF(p->module_load_hook);
+
+    p->module_load_hook = callback;
     Py_INCREF(callback);
 }
 
@@ -730,6 +748,38 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     thread_prepare_for_python_return(t, NULL);
 
     return should_run;
+}
+
+void pyda_hook_module_load(const char *module_path) {
+    PyGILState_STATE gstate;
+    pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+    if (t->errored) return;
+
+    PyObject *hook = t->proc->module_load_hook;
+    if (!hook) return;
+
+    thread_prepare_for_python_entry(&gstate, t, NULL);
+
+    DEBUG_PRINTF("module_load %s\n", module_path);
+
+    PyObject *module_path_obj = PyUnicode_FromString(module_path);
+    PyObject *result = PyObject_CallFunctionObjArgs(hook, t->proc->py_obj, module_path_obj, NULL);
+
+    Py_DECREF(module_path_obj);
+
+    if (result == NULL) {
+        dr_fprintf(STDERR, "\n[Pyda] ERROR: Module load hook call failed. Skipping future hooks on thread %d\n", t->tid);
+        dr_flush_file(STDERR);
+        t->errored = 1;
+        PyErr_Print();
+        dr_fprintf(STDERR, "\n");
+    } else {
+        Py_DECREF(result);
+    }
+
+    DEBUG_PRINTF("module_load ret %s\n", module_path);
+    PyGILState_Release(gstate);
+    thread_prepare_for_python_return(t, NULL);
 }
 
 void pyda_hook_rununtil_reached(void *pc) {

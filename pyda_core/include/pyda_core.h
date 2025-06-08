@@ -38,6 +38,7 @@ struct pyda_process_s {
     PyObject *thread_init_hook;
     PyObject *syscall_pre_hook;
     PyObject *syscall_post_hook;
+    PyObject *module_load_hook;
 
     PyObject *py_obj;
 
@@ -131,11 +132,12 @@ void pyda_break_noblock(pyda_thread *t); // used when app exits, no need to retu
 void pyda_initial_break(pyda_thread *t);
 
 // NOTE: GIL should be held for these
-void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type);
+void pyda_add_hook(pyda_process *p, uint64_t addr, PyObject *callback, int callback_type, int needs_flush);
 void pyda_remove_hook(pyda_process *p, uint64_t addr);
 void pyda_set_thread_init_hook(pyda_process *p, PyObject *callback);
 void pyda_set_syscall_pre_hook(pyda_process *p, PyObject *callback);
 void pyda_set_syscall_post_hook(pyda_process *p, PyObject *callback);
+void pyda_set_module_load_hook(pyda_process *p, PyObject *callback);
 
 pyda_hook* pyda_get_callback(pyda_process *p, void* addr);
 
@@ -148,6 +150,7 @@ int pyda_check_run_until(pyda_process *proc, void *test_pc);
 int pyda_flush_hooks();
 void pyda_hook_cleancall(pyda_hook *cb);
 int pyda_hook_syscall(int syscall_num, int is_pre);
+void pyda_hook_module_load(const char *module_path);
 void pyda_hook_rununtil_reached(void *pc);
 
 int pyda_push_context(pyda_thread *t);

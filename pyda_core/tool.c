@@ -100,6 +100,11 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
 
 void module_load_event(void *drcontext, const module_data_t *mod, bool loaded) {
     DEBUG_PRINTF("module_load_event: %s\n", mod->full_path);
+    
+    if (loaded) {
+        pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
+        pyda_hook_module_load(mod->full_path);
+    }
 }
 
 void thread_init_event(void *drcontext) {

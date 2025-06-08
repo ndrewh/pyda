@@ -41,6 +41,7 @@ static PyObject *PydaProcess_get_main_module(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_filter(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_pre_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args);
+static PyObject *PydaProcess_set_module_load_hook(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_push_state(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_pop_state(PyObject *self, PyObject *args);
 static PyObject *PydaProcess_backtrace(PyObject *self, PyObject *noarg);
@@ -123,6 +124,7 @@ static PyMethodDef PydaProcessMethods[] = {
     // {"set_syscall_filter",  PydaProcess_set_syscall_filter, METH_VARARGS, "Set list of syscalls to call hooks on"},
     {"set_syscall_pre_hook",  PydaProcess_set_syscall_pre_hook, METH_VARARGS, "Register syscall pre hook"},
     {"set_syscall_post_hook",  PydaProcess_set_syscall_post_hook, METH_VARARGS, "Register syscall post hook"},
+    {"set_module_load_hook",  PydaProcess_set_module_load_hook, METH_VARARGS, "Register module load hook"},
     {"push_state",  PydaProcess_push_state, METH_VARARGS, "Push register state (thread-local)"},
     {"pop_state",  PydaProcess_pop_state, METH_VARARGS, "Pop register state (thread-local)"},
     {"backtrace", PydaProcess_backtrace, METH_NOARGS, "Returns backtrace (array of tuples)"},
@@ -630,8 +632,9 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
     unsigned long long addr;
     PyObject *callback;
     unsigned long long callback_type;
+    bool later;
 
-    if (!PyArg_ParseTuple(args, "KO!K", &addr, &PyFunction_Type, &callback, &callback_type))
+    if (!PyArg_ParseTuple(args, "KO!Kb", &addr, &PyFunction_Type, &callback, &callback_type, &later))
         return NULL;
 
     PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
@@ -642,9 +645,11 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
 
 #ifdef PYDA_DYNAMORIO_CLIENT
     DEBUG_PRINTF("register_hook: %llx\n", addr);
-    if (!dr_memory_is_readable((app_pc)addr, 1)) {
+
+    int readable = dr_memory_is_readable((app_pc)addr, 1);
+    if (!later && !readable) {
         char buf[100];
-        snprintf(buf, sizeof(buf), "Hooked PC %" PRIxPTR " is invalid.", (uintptr_t)addr);
+        snprintf(buf, sizeof(buf), "Hooked PC %" PRIxPTR " is invalid; try later=True if this will be mapped later.", (uintptr_t)addr);
         PyErr_SetString(PyExc_RuntimeError, buf);
         return NULL;
     }
@@ -655,7 +660,7 @@ PydaProcess_register_hook(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    pyda_add_hook(p->main_thread->proc, addr, callback, callback_type);
+    pyda_add_hook(p->main_thread->proc, addr, callback, callback_type, readable);
 
 #endif // PYDA_DYNAMORIO_CLIENT
     Py_INCREF(Py_None);
@@ -732,6 +737,32 @@ PydaProcess_set_syscall_post_hook(PyObject *self, PyObject *args) {
 
     // note: pyda_set_syscall_pre_hook calls incref
     pyda_set_syscall_post_hook(p->main_thread->proc, callback);
+
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *
+PydaProcess_set_module_load_hook(PyObject *self, PyObject *args) {
+    PydaProcess *p = (PydaProcess*)self;
+
+    PyObject *callback;
+
+    if (!PyArg_ParseTuple(args, "O!", &PyFunction_Type, &callback))
+        return NULL;
+
+    PyCodeObject *code = (PyCodeObject*)PyFunction_GetCode(callback);
+    if (!code || code->co_argcount != 2) {
+        PyErr_SetString(PyExc_RuntimeError, "Callback must take two arguments (process, module_path)");
+        return NULL;
+    }
+
+#ifdef PYDA_DYNAMORIO_CLIENT
+    DEBUG_PRINTF("set_module_load_hook\n");
+#endif
+
+    // note: pyda_set_module_load_hook calls incref
+    pyda_set_module_load_hook(p->main_thread->proc, callback);
 
     Py_INCREF(Py_None);
     return Py_None;
