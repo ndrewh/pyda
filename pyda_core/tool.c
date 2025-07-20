@@ -109,6 +109,12 @@ void module_load_event(void *drcontext, const module_data_t *mod, bool loaded) {
 
 void thread_init_event(void *drcontext) {
     DEBUG_PRINTF("thread_init_event\n");
+    module_data_t *main_mod = dr_get_main_module();
+
+    if (!main_mod) {
+        DEBUG_PRINTF("main_mod is NULL\n");
+        return;
+    }
 
     // Make a thread structure
     static pyda_process *global_proc = NULL;
@@ -149,7 +155,6 @@ void thread_init_event(void *drcontext) {
 
     // Store the first pc, we will intrument it to call break
     if (t == global_proc->main_thread) {
-        module_data_t *main_mod = dr_get_main_module();
         t->proc->entrypoint = (void*)main_mod->entry_point;
 
         if (!getenv("PYDA_NO_ATTACH")) {
