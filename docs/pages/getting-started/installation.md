@@ -22,7 +22,7 @@ docker build -t pyda .
 ## Experimental pip install (macOS and Linux)
 
 !!! warning
-    macOS support is extremely experimental and may not work.
+    macOS support is extremely experimental and may not work. See "a note on macOS" below.
 
 Installation with pip may take ~1-2 minutes to complete, as it builds everything from source.
 
@@ -38,19 +38,26 @@ pip install pyda-dbi
 - **Architecture**: X86_64, ARM64
 - **Python**: CPython 3.10
 
-## Verification
+## First use
 
 Once installed, you can verify your installation works by running a simple example:
 
 ```bash
-# Using Docker
+# If you used Docker...
 docker run -it ghcr.io/ndrewh/pyda pyda examples/ltrace.py -- ls -al
 
-# Using pip install
+# If you used pip install...
 pyda examples/ltrace.py -- ls -al
 ```
 
 If the installation is successful, you should see ltrace-style output showing library function calls made by the `ls` command.
+
+### A note on macOS
+
+On macOS, certain security mechanisms interfere with Pyda. Pyda (and any other DynamoRIO-based tool) will **silently fail to attach to many code-signed processes**.
+
+- If you just want to try Pyda, try it on something you compiled on your own machine or (if you know what you're doing) resign your target with the `codesign` utility.
+- If you want to run system / App Store applications under Pyda, consider disabling SIP.
 
 ## Next Steps
 

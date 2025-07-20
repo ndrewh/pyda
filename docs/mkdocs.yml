@@ -51,6 +51,8 @@ nav:
   - API Reference:
     - Process: api/process.md
     - Exceptions: api/exceptions.md
+  - Advanced Usage:
+    - Attaching to a running process: advanced-usage/attaching.md
 
 markdown_extensions:
   - admonition
