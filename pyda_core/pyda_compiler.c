@@ -518,6 +518,7 @@ static void exprbuilder_commit(ExprBuilder *builder, instrlist_t *bb, instr_t *i
 }
 
 void expr_print(struct Expr *e) {
+    void *drcontext;
     switch (e->ty) {
         case EXPR_TYPE_ADD:
             dr_fprintf(STDERR, "%%%d + %%%d\n", e->op1, e->op2);
@@ -545,7 +546,7 @@ void expr_print(struct Expr *e) {
             dr_fprintf(STDERR, "#0x%lx\n", e->op1);
             break;
         case EXPR_TYPE_RAW:
-            void *drcontext = dr_get_current_drcontext();
+            drcontext = dr_get_current_drcontext();
             instr_t *inst = instrlist_first(((struct ExprRaw *)e)->code);
             while (inst) {
                 char buf[256];
