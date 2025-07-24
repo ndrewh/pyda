@@ -32,10 +32,11 @@ new "blocking" APIs like `p.run_until(pc)` which allow you to interleave executi
 
 #### Quickstart
 
+Run the `ltrace.py` example on `ls -al`:
+
 ```sh
 docker run -it ghcr.io/ndrewh/pyda pyda examples/ltrace.py -- ls -al
 ```
-
 
 ## Example
 > [!WARNING]
@@ -92,124 +93,28 @@ print out the targets during execution
 attempts to isolate our libc (and other libraries) from the target, OS structures (e.g. fds)
 are shared.
 
-## Getting started
+## Getting Started
 
-### Install
+### Installation
 
-Suggested use is via Docker.
+Check out the [docs](https://ndrewh.github.io/pyda/getting-started/installation/) for installation instructions.
 
-Pull the latest release:
-```sh
-docker pull ghcr.io/ndrewh/pyda
-```
-
-Or build it yourself:
-```sh
-docker build -t pyda .
-```
-
-(The Pyda image is currently based on `ubuntu:22.04` and we leave the default entrypoint as `/bin/bash`)
-
-### Experimental pip install (macOS and Linux)
-
-> [!WARNING]
-> macOS support is extremely experimental and may not work.
-
-Installation with pip may take ~1-2 minutes to complete, as it builds everything from source.
-**Pyda currently only supports CPython 3.10.**
-
-```sh
-pip install pyda-dbi
-```
-
-### Usage
-```sh
-pyda <script_path> [script_args] -- <bin_path> [bin_args]
-```
-
-"Hello World" example: `ltrace` over `/bin/ls`
-```sh
-pyda examples/ltrace.py -- ls
-```
 ### API
 
-You can view all of the available APIs in [process.py](https://github.com/ndrewh/pyda/blob/master/lib/pyda/process.py), but in summary:
+See the [Quick Reference](https://ndrewh.github.io/pyda/quick-reference).
 
-Read/Modify Memory and Registers:
-
-```py
-# Read memory
-p.read(0x100000, 8) # 8 bytes (bytes)
-p.mem[0x100000] # 1 byte (int)
-p.mem[0x100000:0x100008] # 8 bytes (bytes)
-
-# Write memory
-p.write(0x100000, b"\x00" * 8)
-p.mem[0x100000:0x100008] = b"\x00" * 8
-
-# Read registers
-p.regs.rax # (int)
-
-# Write registers
-p.regs.rax = 0x1337133713371337
-```
-
-Hooks:
-
-```py
-# Hooks (functions called before executing the instruction at the specified PC)
-p.hook(0x100000, lambda p: print(f"rsp={hex(p.regs.rsp)}"))
-
-# New thread events: called when a new thread starts (just before entrypoint)
-p.set_thread_entry(lambda p: print(f"tid {p.tid} started")) # Called when a new thread is spawned
-
-# Syscall hooks: called for a specific syscall (specified by the first arg)
-# as a pre (before syscall) or post (after syscall) hook.
-#
-# Pre-syscall hooks can optionally return False to skip the syscall.
-# In this case, you are responsible for setting the return value
-# (e.g. with p.regs.rax = 0). Returning any value other than False (or not
-# returning anything at all) will still run the syscall.
-p.syscall_pre(1, lambda p, syscall_num: print(f"write about to be called with {p.regs.rdx} bytes"))
-p.syscall_post(1, lambda p, syscall_num: print(f"write called with {p.regs.rdx} bytes"))
-```
-
-Debugger-style "blocking" APIs:
-```py
-# Resumes the process until completion
-p.run()
-
-# Resumes the process until `pc` is reached
-p.run_until(pc)
-
-# pwntools tube APIs are overloaded:
-# recvuntil(x) resumes the process until it reaches a "write" syscall
-# that writes matching data
-p.recvuntil(bstr)
-```
-
-Misc
-```py
-# Get process base
-p.maps["libc.so.6"].base # (int)
-
-# Get current thread id (valid in hooks and thread entrypoint)
-p.tid # (int), starts from 1
-```
+You can view all of the available APIs in [process.py](https://github.com/ndrewh/pyda/blob/master/lib/pyda/process.py), or [in the docs](https://ndrewh.github.io/pyda/api/process).
 
 ### FAQ
 
 **Why should I use this over GDB or other ptrace-based debuggers?** 
 
-GDB breakpoints incur substantial overhead due to signal handling in the kernel and in
-the tracer process.  This introduces an insurmountable
-performance challenge for high-frequency breakpoints.
-For multithreaded programs, this problem is compounded by
-["group-stop"](https://man7.org/linux/man-pages/man2/ptrace.2.html), which will
-stop *all* threads when *any* thread receives a stop signal.
-
-Unlike GDB, Pyda hooks are executed directly in the target process itself (without the overhead of signals
-or a kernel context switch). As a result, Pyda hooks typically run faster.
+Pyda gives you many of the same capabilities as a debugger, with some key differences (which may or may not matter to you):
+- You can use whatever Python packages you're already familiar with to manipulate program state (e.g. pwntools)
+- Your instrumentation runs in the same process as the program you're debugging -- making it faster if you have
+a lot of breakpoints or need to access a lot of data (you're in the same address space!).
+- Multithreaded programs do not halt all threads when one thread enters a hook (see: ptrace ["group stop"](https://man7.org/linux/man-pages/man2/ptrace.2.html))
+- For advanced users, you can even [inline your instrumentation](https://ndrewh.github.io/pyda/advanced-usage/inline)
 
 **Why should I use this over Frida or other dynamic instrumentation tools?**
 
@@ -260,23 +165,10 @@ aspects of Dynamorio: in particular, our tool's threads reside in a different pr
 (despite residing in the same memory space). This causes problems
 with certain concurrency primatives (e.g. `sem_init`/`sem_wait`) that rely on threads being in the same process group.
 
-Dynamorio handles all the nasty low-level details: inserting instrumentation, machine state trasitions to/from hooks, etc. Pyda provides
+Dynamorio handles many of the nasty low-level details: inserting instrumentation, machine state trasitions to/from hooks, etc. Pyda provides
 a CPython extension for registering hooks and proxies machine state modifications to Dynamorio. Pyda itself ends up handling
-a lot of edge cases (think: hooks which throw exceptions, hooks which remove themselves, redirect execution, etc.) and nasty error states, especially surrounding thread creation and cleanup.
-
-### Multithreading
-
-While in theory `ptrace` allows threads to be started and stopped independently, most interactive debuggers like GDB automatically suspend *all* threads
-when *any* thread reaches a breakpoint (for more infomation, see GDB's `scheduler-locking` option and and the ptrace ["group-stop" documentation](https://man7.org/linux/man-pages/man2/ptrace.2.html)).
-
-Like GDB breakpoints, Pyda hooks are global to all threads. But unlike GDB, hook execution does not interrupt other threads (except as described below).
-
-Programs running under Pyda get a single CPython interpreter, so all threads share the same state (globals). When a hook
-is called by a thread, the thread will first acquire the GIL. This effectively serves as a global lock over all hooks, but we may try to eliminate this in a future release.
-
-We maintain a thread-specific
-data structure using Dynamorio's TLS mechanism, which allows us to track thread creation/destruction
-and report thread-specific information (e.g. `p.tid`) in hooks.
+a lot of edge cases (think: hooks which throw exceptions, hooks which remove themselves, hooks which redirect execution, etc.) and nasty error states,
+especially surrounding thread creation and cleanup.
 
 ## Contributing
 
