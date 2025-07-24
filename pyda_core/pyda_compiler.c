@@ -378,9 +378,11 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr, i
                 drreg_unreserve_register(drcontext, bb, instr, reg1);
                 drreg_unreserve_register(drcontext, bb, instr, reg2);
 
-/* #elif defined(AARCH64) */
+#elif defined(AARCH64)
 /* udiv x2, x0, x1 */
 /* msub x3, x2, x1, x0 */
+                dr_fprintf(STDERR, "exprbuilder_compiler: mod is not implemented on ARM64 yet\n");
+                dr_abort();
 #else
     #error "Unsupported architecture"
 #endif

@@ -312,7 +312,7 @@ TESTS = [
         ]
     )),
 
-    ("test_compiler2", "simple2.c", "builder2.py", RunOpts(), ExpectedResult(
+    ("test_compiler2", "simple2.c", "builder2.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
