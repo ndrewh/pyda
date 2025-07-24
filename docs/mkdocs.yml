@@ -48,11 +48,13 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+  - Quick Reference: quick-reference.md
+  - Advanced Usage:
+    - Attaching to a running process: advanced-usage/attaching.md
+    - Inline instrumentation: advanced-usage/inline.md
   - API Reference:
     - Process: api/process.md
     - Exceptions: api/exceptions.md
-  - Advanced Usage:
-    - Attaching to a running process: advanced-usage/attaching.md
 
 markdown_extensions:
   - admonition
