@@ -49,6 +49,7 @@ static PyObject *PydaProcess_backtrace(PyObject *self, PyObject *noarg);
 static void PydaExprBuilder_dealloc(PydaExprBuilder *self);
 static PyObject *PydaExprBuilder_get_register(PyObject *self, PyObject *args);
 static PyObject *PydaExprBuilder_set_register(PyObject *self, PyObject *args);
+static PyObject *PydaExprBuilder_print(PyObject *self, PyObject *args);
 
 
 static PyMethodDef PydaGlobalMethods[] = {
@@ -92,6 +93,8 @@ static PyMethodDef PydaExprBuilder_methods[] = {
      "Get a register value"},
     {"set_register", (PyCFunction)PydaExprBuilder_set_register, METH_VARARGS,
      "Set a register to an expression"},
+    {"print", (PyCFunction)PydaExprBuilder_print, METH_VARARGS,
+     "Print (debug)"},
     {NULL}  /* Sentinel */
 };
 
@@ -244,6 +247,7 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "EXPR_TYPE_SUB", EXPR_TYPE_SUB);
     PyModule_AddIntConstant(m, "EXPR_TYPE_MUL", EXPR_TYPE_MUL);
     PyModule_AddIntConstant(m, "EXPR_TYPE_DIV", EXPR_TYPE_DIV);
+    PyModule_AddIntConstant(m, "EXPR_TYPE_MOD", EXPR_TYPE_MOD);
     PyModule_AddIntConstant(m, "EXPR_TYPE_LOAD", EXPR_TYPE_LOAD);
     PyModule_AddIntConstant(m, "EXPR_TYPE_STORE", EXPR_TYPE_STORE);
 
@@ -1104,6 +1108,15 @@ PydaExprBuilder_set_register(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_RuntimeError, "Failed to set register value");
         return NULL;
     }
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+PydaExprBuilder_print(PyObject *self, PyObject *args) {
+    PydaExprBuilder *builder = (PydaExprBuilder*)self;
+
+    exprbuilder_print(builder->builder);
 
     Py_RETURN_NONE;
 }

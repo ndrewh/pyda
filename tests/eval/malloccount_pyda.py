@@ -1,8 +1,5 @@
 from pyda import *
 from pwnlib.elf.elf import ELF
-from pwnlib.util.packing import u64
-import string
-import sys
 
 p = process()
 

@@ -115,7 +115,7 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
         } else {
             dup2(slave, 0);
             dup2(slave, 1);
-            dup2(slave, 2);
+            /* dup2(slave, 2); */
             proc->stdin_fd = dup(master);
             proc->stdout_fd = dup(master);
             proc->stderr_fd = dup(master);
@@ -154,11 +154,11 @@ void pyda_capture_io(pyda_process *proc, int use_pty, int pty_raw) {
 
         dup2(pipe1[0], 0);
         dup2(pipe2[1], 1);
-        dup2(pipe3[1], 2);
+        /* dup2(pipe3[1], 2); */
 
         proc->stdin_fd = pipe1[1];
         proc->stdout_fd = pipe2[0];
-        proc->stderr_fd = pipe3[0];
+        /* proc->stderr_fd = pipe3[0]; */
     }
 
     // nonblocking

@@ -311,6 +311,15 @@ TESTS = [
             lambda o, e: all(o.count(f"hello {i}".encode('utf-8')) == 1 for i in range(1337, 1347)),
         ]
     )),
+
+    ("test_compiler2", "simple2.c", "builder2.py", RunOpts(), ExpectedResult(
+        retcode=0,
+        checkers=[
+            output_checker,
+            no_warnings_or_errors,
+            lambda o, e: o.count(b"pass\n") == 1,
+        ]
+    )),
 ]
 
 def main():

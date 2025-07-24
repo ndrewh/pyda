@@ -13,7 +13,7 @@
 #include "drvector.h"
 #include "pyda_compiler.h"
 
-#define SCRATCH_SLOTS 16
+#define SCRATCH_SLOTS 32
 
 
 extern int is_dynamorio_running;

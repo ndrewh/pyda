@@ -13,6 +13,7 @@ static int validate_and_increment_refs(ExprBuilder *builder, unsigned long ty, u
         case EXPR_TYPE_SUB:
         case EXPR_TYPE_MUL:
         case EXPR_TYPE_DIV:
+        case EXPR_TYPE_MOD:
         case EXPR_TYPE_STORE:
             if (op2 >= builder->exprs.entries || !builder->exprs.array[op2]) {
                 return -1;
@@ -125,6 +126,7 @@ void expr_free(ExprBuilder *builder, unsigned long handle) {
         case EXPR_TYPE_SUB:
         case EXPR_TYPE_MUL:
         case EXPR_TYPE_DIV:
+        case EXPR_TYPE_MOD:
         case EXPR_TYPE_STORE:
             expr_free(builder, expr->op2);
             // fall through
@@ -233,7 +235,7 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr, i
     reg_id_t op1_reg, op2_reg;
 
     if (builder->exprs.entries > SCRATCH_SLOTS) {
-        dr_fprintf(STDERR, "Register allocation is not yet implemented");
+        dr_fprintf(STDERR, "Expression too complex: Register allocation is not yet implemented\n");
         return 0;
     }
 
@@ -282,6 +284,7 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr, i
             drreg_restore_app_value(drcontext, bb, instr, op2_reg, op2_reg, false);
 
             // Commit the current abstract register state
+            // XXX(bug): This is not correct, since this may try to commit values that have not been computed yet.
             exprbuilder_commit(builder, bb, instr, scratch_ptr_reg);
 
             drreg_unreserve_register(drcontext, bb, instr, scratch_ptr_reg);
@@ -337,6 +340,50 @@ int exprbuilder_compile(ExprBuilder *builder, instrlist_t *bb, instr_t *instr, i
     #error "Unsupported architecture"
 #endif
                 instrlist_meta_preinsert(bb, instr, new_instr);
+                break;
+            case EXPR_TYPE_MOD:
+#if defined(X86)
+                reg_id_t reg1, reg2;
+                drvector_t allowed;
+
+                drreg_init_and_fill_vector(&allowed, false);
+                drreg_set_vector_entry(&allowed, DR_REG_RDX, true);
+                drreg_set_vector_entry(&allowed, DR_REG_RAX, true);
+                if (
+                    drreg_reserve_register(drcontext, bb, instr, &allowed, &reg2) != DRREG_SUCCESS
+                    || drreg_reserve_register(drcontext, bb, instr, &allowed, &reg1) != DRREG_SUCCESS
+                ) {
+                    dr_fprintf(STDERR, "exprbuilder_compiler: failed to reserve RDX/RAX for mod\n");
+                    drvector_delete(&allowed);
+                    dr_abort();
+                }
+                drvector_delete(&allowed);
+
+                /* RDX:RAX // op2_reg */
+                instrlist_insert_mov_immed_ptrsz(drcontext, 0, opnd_create_reg(DR_REG_RDX), bb, instr, NULL, NULL);
+
+                new_instr = XINST_CREATE_move(drcontext, opnd_create_reg(DR_REG_RAX), opnd_create_reg(op1_reg));
+                instrlist_meta_preinsert(bb, instr, new_instr);
+
+                new_instr = instr_create_2dst_3src(drcontext, OP_div, opnd_create_reg(DR_REG_RDX),
+                       opnd_create_reg(DR_REG_RAX), opnd_create_reg(op2_reg),
+                       opnd_create_reg(DR_REG_RDX), opnd_create_reg(DR_REG_RAX));
+
+                instrlist_meta_preinsert(bb, instr, new_instr);
+
+                /* Remainder is in RDX */
+                new_instr = XINST_CREATE_move(drcontext, opnd_create_reg(op1_reg), opnd_create_reg(DR_REG_RDX));
+                instrlist_meta_preinsert(bb, instr, new_instr);
+
+                drreg_unreserve_register(drcontext, bb, instr, reg1);
+                drreg_unreserve_register(drcontext, bb, instr, reg2);
+
+/* #elif defined(AARCH64) */
+/* udiv x2, x0, x1 */
+/* msub x3, x2, x1, x0 */
+#else
+    #error "Unsupported architecture"
+#endif
                 break;
             /*
             case EXPR_TYPE_DIV:
@@ -465,5 +512,61 @@ static void exprbuilder_commit(ExprBuilder *builder, instrlist_t *bb, instr_t *i
             }
             expr_free(builder, handle);
         }
+    }
+}
+
+void expr_print(struct Expr *e) {
+    switch (e->ty) {
+        case EXPR_TYPE_ADD:
+            dr_fprintf(STDERR, "%%%d + %%%d\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_SUB:
+            dr_fprintf(STDERR, "%%%d - %%%d\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_MUL:
+            dr_fprintf(STDERR, "%%%d * %%%d\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_DIV:
+            dr_fprintf(STDERR, "%%%d / %%%d\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_MOD:
+            dr_fprintf(STDERR, "%%%d % %%%d\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_STORE:
+            dr_fprintf(STDERR, "store(addr: %%%d, value: %%%d)\n", e->op1, e->op2);
+            break;
+            // fall through
+        case EXPR_TYPE_LOAD:
+            dr_fprintf(STDERR, "load(%%%d)\n", e->op1, e->op2);
+            break;
+        case EXPR_TYPE_CONST:
+            dr_fprintf(STDERR, "#0x%lx\n", e->op1);
+            break;
+        case EXPR_TYPE_RAW:
+            void *drcontext = dr_get_current_drcontext();
+            instr_t *inst = instrlist_first(((struct ExprRaw *)e)->code);
+            while (inst) {
+                char buf[256];
+                instr_disassemble_to_buffer(drcontext, inst, buf, 256);
+                dr_fprintf(STDERR, "asm(\"%s\")\n", buf);
+                inst = instr_get_next(inst);
+            }
+            break;
+        case EXPR_TYPE_REG:
+            dr_fprintf(STDERR, "%s\n", get_register_name(e->op1));
+            break;
+    }
+}
+
+void exprbuilder_print(ExprBuilder *builder) {
+    for (unsigned long i = 0; i < builder->exprs.entries; i++) {
+        struct Expr *e = builder->exprs.array[i];
+        if (!e) continue;
+
+        if (e->ty != EXPR_TYPE_STORE || e->ty != EXPR_TYPE_RAW) {
+            dr_fprintf(STDERR, "%%%d = ", i);
+        }
+
+        expr_print(e);
     }
 }

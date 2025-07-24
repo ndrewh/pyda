@@ -16,6 +16,7 @@ int main(int argc, char** argv) {
     }
     for (int i=0; i<10; i++) {
         free(allocs[i]);
+        printf("hello %d\n", i);
     }
     printf("end\n");
 }

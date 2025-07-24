@@ -34,9 +34,8 @@ def get_calls(proc):
             ind_call_locs[addr] = (reg, off)
         elif l.split()[-2] == "call":
             call_locs[int(l.split(":")[0].strip(), 16)] = l.split()[-1]
-        
-    return call_locs, ind_call_locs
 
+    return call_locs, ind_call_locs
 
 call_locs, ind_call_locs = get_calls(p)
 
@@ -60,7 +59,7 @@ def ind_call_print(p):
 if BASE != 0:
     for c in call_locs:
         p.hook(BASE + c, call_reg)
-    
+
     for c in ind_call_locs:
         p.hook(BASE + c, ind_call_print)
 

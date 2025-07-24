@@ -61,6 +61,6 @@ RUN bash -c 'if [[ "$PYDA_GEF" = "1" ]]; then \
 ARG EVAL=0
 RUN bash -c 'if [[ "$EVAL" = "1" ]]; then \
     apt update && apt install -y python3 python3-dev libdwarf-dev libelf-dev libiberty-dev linux-headers-generic libc6-dbg; \
-    pip3 install libdebug; \
+    pip3 install libdebug frida-tools; \
     fi'
 
