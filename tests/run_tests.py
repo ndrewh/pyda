@@ -20,12 +20,13 @@ class ExpectedResult:
 class RunOpts:
     no_pty: bool = False
     attach: bool = False
-    supported_arches: list[str] = field(default_factory=lambda: ["AMD64", "x86_64", "aarch64"])
+    supported_arches: list[str] = field(default_factory=lambda: ["AMD64", "x86_64", "aarch64", "arm64"])
     supported_platforms: list[str] = field(default_factory=lambda: ["Linux"])
     ci: bool = True
 
     def no_arm64(self):
         self.supported_arches.remove("aarch64")
+        self.supported_arches.remove("arm64")
         return self
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:

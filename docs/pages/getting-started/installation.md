@@ -34,7 +34,7 @@ pip install pyda-dbi
 
 ## Supported Platforms
 
-- **Operating System**: Linux, macOS
+- **Operating System**: Linux, macOS (experimental)
 - **Architecture**: X86_64, ARM64
 - **Python**: CPython 3.10
 
@@ -57,7 +57,7 @@ If the installation is successful, you should see ltrace-style output showing li
 On macOS, certain security mechanisms interfere with Pyda. Pyda (and any other DynamoRIO-based tool) will **silently fail to attach to many code-signed processes**.
 
 - If you just want to try Pyda, try it on something you compiled on your own machine or (if you know what you're doing) resign your target with the `codesign` utility.
-- If you want to run system / App Store applications under Pyda, consider disabling SIP.
+- If you want to run system / App Store applications under Pyda, consider disabling SIP. This is completely untested, though.
 
 ## Next Steps
 
