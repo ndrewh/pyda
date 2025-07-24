@@ -36,13 +36,13 @@ int pyda_thread_key_delete(pthread_key_t key) {
 void* pyda_thread_getspecific(pthread_key_t key) {
     void *drcontext = dr_get_current_drcontext();
     void* result =  drmgr_get_tls_field(drcontext, (int)key);
-    // DEBUG_PRINTF("pthread_thread_key_getspecific %d result %lx\n", key, (unsigned long)result);
+    DEBUG_PRINTF("pthread_thread_key_getspecific %d result %lx\n", key, (unsigned long)result);
     return result;
 }
 int pyda_thread_setspecific(pthread_key_t key, void *val) {
     void *drcontext = dr_get_current_drcontext();
     bool result = drmgr_set_tls_field(drcontext, (int)key, val);
-    // DEBUG_PRINTF("pthread_thread_key_setspecific %d val %lx result %d\n", key, (unsigned long)val, result);
+    DEBUG_PRINTF("pthread_thread_key_setspecific %d val %lx result %d\n", key, (unsigned long)val, result);
     return result != 1;
 }
 
@@ -76,12 +76,13 @@ int pyda_cond_signal(pthread_cond_t *condvar) {
     return pthread_cond_signal(condvar);
 }
 
-int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
+
+int pyda_mutex_init(pthread_mutex_t *mutex, pthread_mutexattr_t *attr) {
     // DEBUG_PRINTF("pthread_mutex_init %p\n", mutex);
     int res;
     if (attr) {
 #ifdef LINUX
-        pthread_mutexattr_setpshared((pthread_mutexattr_t*)attr, PTHREAD_PROCESS_SHARED);
+        pthread_mutexattr_setpshared(attr, PTHREAD_PROCESS_SHARED);
 #endif
         res = pthread_mutex_init(mutex, attr);
     } else {
@@ -97,6 +98,27 @@ int pyda_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr) {
     return res;
 }
 
+int pyda_rwlock_init(pthread_rwlock_t *rwlock, pthread_rwlockattr_t *attr) {
+    int retval;
+    if (attr) {
+#ifdef LINUX
+        pthread_rwlockattr_setpshared(attr, PTHREAD_PROCESS_SHARED);
+#endif
+        retval = pthread_rwlock_init(rwlock, attr);
+    } else {
+        pthread_rwlockattr_t attr2;
+        pthread_rwlockattr_init(&attr2);
+#ifdef LINUX
+        pthread_rwlockattr_setpshared(&attr2, PTHREAD_PROCESS_SHARED);
+#endif
+        retval = pthread_rwlock_init(rwlock, &attr2);
+        pthread_rwlockattr_destroy(&attr2);
+    }
+
+    DEBUG_PRINTF("rwlock_init %p = %d\n", rwlock, retval);
+    return retval;
+}
+
 void* pyda_thread_self() {
     // XXX: We *could* try to return our pyda-specific tid -- but there
     // are technically two threads with that tid!! (Python and App).
@@ -105,6 +127,21 @@ void* pyda_thread_self() {
     //
     // Instead, we are just going to return the dynamorio thread id
     return (void*)(uintptr_t)dr_get_thread_id(dr_get_current_drcontext());
+}
+
+// pthread_once assumes process-shared futex implementation,
+// but tool and app run in different processes (but same address space).
+pthread_mutex_t pyda_once_mutex; // initialized in dr_client_main
+void* pyda_once(pthread_once_t *once_control, void (*init_routine)(void)) {
+    pthread_mutex_lock(&pyda_once_mutex);
+    if (*once_control == PTHREAD_ONCE_INIT) {
+        *once_control += 1; // mark as initialized
+        DEBUG_PRINTF("pyda_once %p=%d %p\n", once_control, *once_control, init_routine);
+        pthread_mutex_unlock(&pyda_once_mutex);
+        init_routine();
+    } else {
+        pthread_mutex_unlock(&pyda_once_mutex);
+    }
 }
 
 extern void __ctype_init();

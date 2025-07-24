@@ -1,5 +1,5 @@
 
-#ifndef NDEBUG
+#if !defined(NDEBUG) || true
 #define DEBUG_PRINTF(...) { \
     dr_fprintf(STDERR, __VA_ARGS__); \
     dr_flush_file(STDERR); \

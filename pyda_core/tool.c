@@ -43,6 +43,7 @@ static void event_attach_post(void);
 
 extern int is_dynamorio_running;
 extern int pyda_attach_mode;
+extern pthread_mutex_t pyda_once_mutex;
 
 int is_python_init;
 
@@ -96,6 +97,8 @@ dr_client_main(client_id_t id, int argc, const char *argv[])
 
     g_pyda_tls_idx = drmgr_register_tls_field();
     g_pyda_tls_is_python_thread_idx = drmgr_register_tls_field();
+
+    pyda_mutex_init(&pyda_once_mutex, NULL);
 }
 
 void module_load_event(void *drcontext, const module_data_t *mod, bool loaded) {

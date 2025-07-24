@@ -8,6 +8,10 @@
 #include "drmgr.h"
 #include "privload.h"
 
+
+extern void EVP_MD_do_all_provided();
+void *tmp_abcd = &EVP_MD_do_all_provided; // force linking of openssl
+
 static redirect_import_t python_redirect_imports[] = {
     { "pthread_key_create", (app_pc)pyda_thread_key_create },
     { "pthread_key_delete", (app_pc)pyda_thread_key_delete },
@@ -18,6 +22,8 @@ static redirect_import_t python_redirect_imports[] = {
     { "pthread_cond_timedwait", (app_pc)pyda_cond_timedwait },
     { "pthread_cond_signal", (app_pc)pyda_cond_signal },
     { "pthread_mutex_init", (app_pc)pyda_mutex_init },
+    { "pthread_rwlock_init", (app_pc)pyda_rwlock_init },
+    { "pthread_once", (app_pc)pyda_once },
 #endif
     { "pthread_self", (app_pc)pyda_thread_self },
     { "pthread_create", (app_pc)pyda_thread_create },
