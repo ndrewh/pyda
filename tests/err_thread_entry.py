@@ -13,7 +13,7 @@ plt_map = { e.plt[x]: x for x in e.plt }
 
 counter = 0
 def lib_hook(p):
-    name = plt_map[p.regs.rip]
+    name = plt_map[p.regs.pc]
     print(f"[thread {p.tid}] {name}")
 
 def thread_entry(p):

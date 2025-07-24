@@ -23,7 +23,7 @@ assert excepted
 print("Exception 1")
 
 # Now, after the exception, redirect execution to main again
-p.regs.rip = e.symbols["main"]
+p.regs.pc = e.symbols["main"]
 excepted = False
 try:
     p.run()
@@ -52,6 +52,6 @@ assert excepted
 print("Exception 3")
 
 p.regs.rsp += 0x18
-p.regs.rip = e.symbols["main"] + 0x26
+p.regs.pc = e.symbols["main"] + 0x26
 p.run()
 print("pass")

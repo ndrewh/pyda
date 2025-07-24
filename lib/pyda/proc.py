@@ -4,6 +4,7 @@ import ctypes
 import ctypes.util
 from .tube import ProcessTube
 from .compiler import Builder
+from .arch import arch, ARCH
 import pyda_core
 import sys
 
@@ -456,34 +457,46 @@ class Process(ProcessTube):
             self._p.push_state()
 
             ## BEGIN ARCH-SPECIFIC SETUP
-            orig_rip = self.regs.rip
+            orig_pc = self.regs.pc
 
-            # Push orig_rip as the return address
-            self.regs.rsp &= ~0xf
-            self.regs.rsp -= 8
-            self.write(self.regs.rsp, orig_rip.to_bytes(8, "little"))
+            if arch() in [ARCH.X86_64, ARCH.X86]:
+                # Push orig_pc as the return address
+                self.regs.rsp &= ~0xf
+                self.regs.rsp -= 8
+                self.write(self.regs.rsp, orig_pc.to_bytes(8, "little"))
 
-            set_regs_for_call_linux_x86(self, args)
-            target_rsp = self.regs.rsp + 8
+                target_sp = self.regs.rsp + 8
+            elif arch() == ARCH.ARM64:
+                # Emulate a blr: just update lr
+                self.regs.x30 = orig_pc
+                # (note that old LR was saved in self._p.push_state())
 
-            self.regs.rip = addr
+                target_sp = self.regs.sp
+
+            set_regs_for_call_linux(self, args)
+
+            print(f"current_pc={hex(self.regs.pc)} target={hex(addr)}")
+            self.regs.pc = addr
 
             # This is a bit hacky, but basically
-            # we don't actually know that orig_rip is outside
+            # we don't actually know that orig_pc is outside
             # of the function, we just know it's a reasonably
             # safe address. You'll get unexpectedly bad perf
-            # if your original RIP is garbage
+            # if your original pc is garbage
 
             count = 0
             try:
-                while self.regs.rsp != target_rsp:
-                    self.run_until(orig_rip)
+                while True:
+                    self.run_until(orig_pc)
                     count += 1
+
+                    if self.regs.sp == target_sp:
+                        break
                 ## END ARCH-SPECIFIC SETUP
 
             finally:
                 if count > 1:
-                    self.warning(f"WARN: Callable should be used from a safe RIP not within the callee.")
+                    self.warning(f"WARN: Callable should be used from a safe pc not within the callee.")
 
                 self._p.pop_state()
 
@@ -561,18 +574,31 @@ def backtrace_to_str(bt, demangle=False, short=False):
 
     return s
 
-def set_regs_for_call_linux_x86(p, args):
+def set_regs_for_call_linux(p, args):
     if len(args) > 6:
         raise NotImplementedError(">6 args not supported yet")
 
-    ARGS = [
-        pyda_core.REG_RDI,
-        pyda_core.REG_RSI,
-        pyda_core.REG_RDX,
-        pyda_core.REG_RCX,
-        pyda_core.REG_R8,
-        pyda_core.REG_R9
-    ]
+    if arch() == ARCH.X86_64:
+        ARGS = [
+            pyda_core.REG_RDI,
+            pyda_core.REG_RSI,
+            pyda_core.REG_RDX,
+            pyda_core.REG_RCX,
+            pyda_core.REG_R8,
+            pyda_core.REG_R9
+        ]
+    elif arch() == ARCH.ARM64:
+        ARGS = [
+            pyda_core.REG_X0,
+            pyda_core.REG_X1,
+            pyda_core.REG_X2,
+            pyda_core.REG_X3,
+            pyda_core.REG_X4,
+            pyda_core.REG_X5
+        ]
+    else:
+        raise NotImplementedError(f"set_regs_for_call_linux not implemented for {arch()}")
+
     for (reg_id, val) in zip(ARGS, args):
         if type(val) is int:
             p._p.set_register(reg_id, val)

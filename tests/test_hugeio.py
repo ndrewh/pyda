@@ -2,9 +2,18 @@ from pyda import *
 from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
 import time
+import platform
+
+def triple():
+    if platform.machine() == "aarch64":
+        return "aarch64-linux-gnu"
+    elif platform.machine() == "x86_64":
+        return "x86_64-linux-gnu"
+    else:
+        raise RuntimeError(f"Unsupported architecture: {platform.machine()}")
 
 def fix_buffering(p):
-    libc = ELF("/lib/x86_64-linux-gnu/libc.so.6")
+    libc = ELF(f"/lib/{triple()}/libc.so.6")
     libc.address = p.maps[libc.path].base
 
     stdin = u64(p.read(libc.symbols["stdin"], 8))

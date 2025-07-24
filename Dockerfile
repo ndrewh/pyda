@@ -27,6 +27,8 @@ RUN git clone --recurse-submodules -j4 https://github.com/DynamoRIO/dynamorio.gi
       cd /opt/dynamorio/ && \
       wget https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init && \
       wget https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && \
+      wget https://github.com/DynamoRIO/dynamorio/commit/8c997f483b564f2408553b718a5707e28c9be820.patch && git apply 8c997f483b564f2408553b718a5707e28c9be820.patch && rm 8c997f483b564f2408553b718a5707e28c9be820.patch && \
+      wget https://github.com/DynamoRIO/dynamorio/commit/572f3b1484fda1fbc502fad298939756cd72f3ae.patch && git apply 572f3b1484fda1fbc502fad298939756cd72f3ae.patch && rm 572f3b1484fda1fbc502fad298939756cd72f3ae.patch && \
       git apply /tmp/dynamorio-11.2.patch && \
       git apply /tmp/wine_tls_fix_11.2.patch && \
       rm /tmp/*.patch && \

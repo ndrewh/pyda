@@ -2,7 +2,7 @@ from pyda import *
 from pwnlib.elf.elf import ELF
 from pwnlib.util.packing import u64
 import string
-import sys
+import sys, platform
 
 p = process()
 
@@ -26,10 +26,10 @@ def guess_arg(x):
 
         except Exception as e:
             pass
-    
+
     return hex(x)
 
-def syscall_pre_hook(p, num):
+def syscall_pre_hook_x86(p, num):
     print(f"[tid {p.tid}] [pre syscall {num}] (" + ", ".join([
         f"rdi={guess_arg(p.regs.rdi)}",
         f"rsi={guess_arg(p.regs.rsi)}",
@@ -37,8 +37,18 @@ def syscall_pre_hook(p, num):
         f"rcx={guess_arg(p.regs.rcx)}",
     ]) + ")")
 
+def syscall_pre_hook_arm64(p, num):
+    print(f"[tid {p.tid}] [pre syscall {num}] (" + ", ".join([
+        f"x0={guess_arg(p.regs.x0)}",
+        f"x1={guess_arg(p.regs.x1)}",
+        f"x2={guess_arg(p.regs.x2)}",
+        f"x3={guess_arg(p.regs.x3)}",
+    ]) + ")")
+
 def syscall_post_hook(p, num):
     print(f"[tid {p.tid}] [post syscall {num}]")
+
+syscall_pre_hook = syscall_pre_hook_arm64 if platform.machine() == "aarch64" else syscall_pre_hook_x86
 
 for snum in range(500):
     p.syscall_pre(snum, syscall_pre_hook)

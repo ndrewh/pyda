@@ -84,9 +84,13 @@ class CustomBuildCommand(build_ext):
                 # TODO: update to a newer version that doesn't require backward-porting these patches
                 urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch', os.path.join(dynamorio_dir, 'f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch'))
                 urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch', os.path.join(dynamorio_dir, 'c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch'))
+                urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/8c997f483b564f2408553b718a5707e28c9be820.patch', os.path.join(dynamorio_dir, '8c997f483b564f2408553b718a5707e28c9be820.patch'))
+                urlretrieve('https://github.com/DynamoRIO/dynamorio/commit/572f3b1484fda1fbc502fad298939756cd72f3ae.patch', os.path.join(dynamorio_dir, '572f3b1484fda1fbc502fad298939756cd72f3ae.patch'))
 
                 run_command(["bash", "-c", "git apply f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && rm f1b67a4b0cf0a13314d500dd3aaefe9869597021.patch && git submodule update --init"], cwd=dynamorio_dir)
                 run_command(["bash", "-c", "git apply c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch && rm c46d736f308e6e734bd0477f7b8a2dcbefb155d3.patch"], cwd=dynamorio_dir)
+                run_command(["bash", "-c", "git apply 8c997f483b564f2408553b718a5707e28c9be820.patch && rm 8c997f483b564f2408553b718a5707e28c9be820.patch"], cwd=dynamorio_dir)
+                run_command(["bash", "-c", "git apply 572f3b1484fda1fbc502fad298939756cd72f3ae.patch && rm 572f3b1484fda1fbc502fad298939756cd72f3ae.patch"], cwd=dynamorio_dir)
 
             # Build DynamoRIO
             dynamorio_build_dir = os.path.join(dynamorio_dir, 'build')

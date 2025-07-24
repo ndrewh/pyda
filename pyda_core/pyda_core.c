@@ -5,8 +5,12 @@
 
 #if defined(LINUX)
 #include <pty.h>
+#include <sys/syscall.h>
 #elif defined(MACOS)
 #include <util.h>
+/* TODO: fix test_io for macos, it probably doesn't work... */
+#define SYS_read 0
+#define SYS_write 1
 #endif
 
 #define CONTEXT_STACK_LIMIT 10
@@ -707,7 +711,7 @@ int pyda_hook_syscall(int syscall_num, int is_pre) {
     pyda_thread *t = pyda_thread_getspecific(g_pyda_tls_idx);
     if (t->errored) return 1;
 
-    if (is_pre == 0 && (syscall_num == 0 || syscall_num == 1) && t->python_blocked_on_io) { // read/write
+    if (is_pre == 0 && (syscall_num == SYS_read || syscall_num == SYS_write) && t->python_blocked_on_io) { // read/write
         t->python_blocked_on_io = 0;
         thread_prepare_for_python_entry(NULL, t, NULL);
         pyda_break(t);

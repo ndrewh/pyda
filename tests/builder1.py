@@ -11,7 +11,7 @@ e.address = p.maps[p.exe_path].base
 
 plt_map = { e.plt[x]: x for x in e.plt }
 def lib_hook(p):
-    p.regs.rsi += 1337
+    p.regs.arg2 += 1337
 
 p.builder_hook(e.plt["printf"], lib_hook)
 

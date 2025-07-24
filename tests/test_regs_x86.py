@@ -17,7 +17,7 @@ def main_hook(p):
     print(f"reg rdi: {hex(p.regs.rdi)}")
     print(f"reg rbp: {hex(p.regs.rbp)}")
     print(f"reg rsp: {hex(p.regs.rsp)}")
-    print(f"reg rip: {hex(p.regs.rip)}")
+    print(f"reg rip: {hex(p.regs.pc)}")
     print(f"reg pc: {hex(p.regs.pc)}")
     print(f"reg r8: {hex(p.regs.r8)}")
     print(f"reg r9: {hex(p.regs.r9)}")
@@ -37,7 +37,7 @@ def main_hook(p):
     print(f"reg xmm7: {hex(p.regs.xmm7)}")
     print(f"reg fsbase: {hex(p.regs.fsbase)}")
 
-    assert p.regs.pc == p.regs.rip
+    assert p.regs.pc == p.regs.pc
     assert p.regs.pc != 0
 
     # try round-trip

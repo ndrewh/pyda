@@ -29,12 +29,12 @@ def guess_arg(x):
     return hex(x)
 
 def lib_hook(p):
-    name = plt_map[p.regs.rip]
+    name = plt_map[p.regs.pc]
     print(f"[thread {p.tid}] {name}(" + ", ".join([
-        f"rdi={guess_arg(p.regs.rdi)}",
-        f"rsi={guess_arg(p.regs.rsi)}",
-        f"rdx={guess_arg(p.regs.rdx)}",
-        f"rcx={guess_arg(p.regs.rcx)}",
+        f"arg0={guess_arg(p.regs.arg1)}",
+        f"arg1={guess_arg(p.regs.arg2)}",
+        f"arg2={guess_arg(p.regs.arg3)}",
+        f"arg3={guess_arg(p.regs.arg4)}",
     ]) + ")")
 
 def thread_entry(p):

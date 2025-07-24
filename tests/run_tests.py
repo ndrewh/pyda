@@ -20,9 +20,13 @@ class ExpectedResult:
 class RunOpts:
     no_pty: bool = False
     attach: bool = False
-    supported_arches: list[str] = field(default_factory=lambda: ["AMD64", "x86_64"])
+    supported_arches: list[str] = field(default_factory=lambda: ["AMD64", "x86_64", "aarch64"])
     supported_platforms: list[str] = field(default_factory=lambda: ["Linux"])
     ci: bool = True
+
+    def no_arm64(self):
+        self.supported_arches.remove("aarch64")
+        return self
 
 def output_checker(stdout: bytes, stderr: bytes) -> bool:
     try:
@@ -41,7 +45,7 @@ def no_warnings_or_errors(stdout: bytes, stderr: bytes) -> bool:
 
 TESTS = [
     # tests whether we can handle a large number of threads with concurrent hooks
-    ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
+    ("threads_concurrent_hooks", "thread_1000.c", "../examples/ltrace_multithreaded.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -53,7 +57,7 @@ TESTS = [
     )),
 
     # tests whether we can handle a large number of threads that do not get waited on
-    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts(), ExpectedResult(
+    ("threads_nojoin", "thread_nojoin.c", "../examples/ltrace_multithreaded.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -65,7 +69,7 @@ TESTS = [
     )),
 
     # hook throws an exception
-    ("err_hook_throw", "thread_1000.c", "err_hook.py", RunOpts(), ExpectedResult(
+    ("err_hook_throw", "thread_1000.c", "err_hook.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -83,7 +87,7 @@ TESTS = [
     )),
 
     # XXX: This is broken in the actions runner for some reason, can't repro locally (#xxx)
-    ("err_thread_entry_throw_1000", "thread_1000.c", "err_thread_entry.py", RunOpts(ci=False), ExpectedResult(
+    ("err_thread_entry_throw_1000", "thread_1000.c", "err_thread_entry.py", RunOpts(ci=False).no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -121,7 +125,7 @@ TESTS = [
         ]
     )),
 
-    ("err_norun_1000", "thread_1000.c", "err_norun.py", RunOpts(ci=False), ExpectedResult(
+    ("err_norun_1000", "thread_1000.c", "err_norun.py", RunOpts(ci=False).no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -130,7 +134,7 @@ TESTS = [
     )),
 
     # test register read/write
-    ("test_regs_x86", "simple.c", "test_regs_x86.py", RunOpts(), ExpectedResult(
+    ("test_regs_x86", "simple.c", "test_regs_x86.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,
@@ -227,7 +231,7 @@ TESTS = [
         ]
     )),
 
-    ("test_segv", "test_segv.c", "test_segv.py", RunOpts(), ExpectedResult(
+    ("test_segv", "test_segv.c", "test_segv.py", RunOpts().no_arm64(), ExpectedResult(
         retcode=0,
         checkers=[
             output_checker,

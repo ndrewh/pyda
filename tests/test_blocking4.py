@@ -11,7 +11,7 @@ plt_map = { e.plt[x]: x for x in e.plt }
 counter = 0
 def malloc_hook(p):
     global counter
-    print(f"malloc({p.regs.rdi})")
+    print(f"malloc({p.regs.arg1})")
     counter += 1
     p.run_until(0x1337133713371337)
 
