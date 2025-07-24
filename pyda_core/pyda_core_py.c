@@ -179,7 +179,8 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "REG_R14", DR_REG_R14);
     PyModule_AddIntConstant(m, "REG_R15", DR_REG_R15);
     PyModule_AddIntConstant(m, "REG_RIP", PYDA_REG_PC);
-    PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC);
+    PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC); // alias
+    PyModule_AddIntConstant(m, "REG_SP", DR_REG_RSP); // alias
     PyModule_AddIntConstant(m, "REG_FSBASE", PYDA_REG_FSBASE);
     PyModule_AddIntConstant(m, "REG_XMM0", DR_REG_XMM0);
     PyModule_AddIntConstant(m, "REG_XMM1", DR_REG_XMM1);
@@ -227,7 +228,7 @@ PyInit_pyda_core(void) {
     PyModule_AddIntConstant(m, "REG_X28", DR_REG_X28);
     PyModule_AddIntConstant(m, "REG_X29", DR_REG_X29);
     PyModule_AddIntConstant(m, "REG_X30", DR_REG_X30);
-    PyModule_AddIntConstant(m, "REG_SP", DR_REG_SP);
+    PyModule_AddIntConstant(m, "REG_SP", DR_REG_SP); // alias
     PyModule_AddIntConstant(m, "REG_PC", PYDA_REG_PC);
     PyModule_AddIntConstant(m, "REG_ARG1", DR_REG_R0);
     PyModule_AddIntConstant(m, "REG_ARG2", DR_REG_R1);
